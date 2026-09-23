@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>chatter-server</AssemblyName>
     <RootNamespace>Chatter.Server</RootNamespace>
-    <Version>2.1.2</Version>
+    <Version>2.2.0</Version>
 
     <!-- Native AOT -->
     <PublishAot>true</PublishAot>

@@ -1,77 +1,79 @@
-# 协议增量 1.6（相对 1.5）
+# 协议增量 1.6.0
 
-1.6 的主题：位置要像微信（地图预览、地图选点、附近地点、导航），文件和图片一键保存，
-手机没有语音识别（国产 ROM / Android 12 无 Google 服务）时由服务器转文字。
-服务器版本 1.6.0，数据库 schema 不变（7）。
+相对 1.5.0。服务端版本 1.6.0。schema 保持为 7。
 
-## 0. 1.5.0 的 bug：`e2e2:` 密文被当成明文
+## 1. 密文判定
 
-1.5.0 客户端两边都有前向保密密钥后，文本一律以 `e2e2:<uid>:<se>.<re>:…` 加密；服务器只认 `e2e:` 前缀，
-于是 `location` / `react` / `sticker` 三种要校验明文格式的消息全部被 `bad_request` 拒掉（位置发不出去），
-`text` 的引用预览被截到 120 字（对方解不开引用）。1.6.0 服务器把两代前缀都当密文（`Hub.IsE2e` / `MessageRepo.IsE2e`），
-位置密文上限从 512 提到 1024 字（120 字中文地址的 v2 密文约 600 字）。`tools/e2e.py` 加了对应用例。
+1.5.0 客户端在双方都拥有前向密钥后，将文本加密为 `e2e2:<uid>:<se>.<re>:…`。1.5.0 服务端只把前缀 `e2e:` 视为密文，因此需要校验明文格式的 `location`、`react` 与 `sticker` 被 `bad_request` 拒绝，位置消息无法发送。`text` 的引用预览也被截断到 120 字，对端无法解密该预览。
 
-## 1. `hello` 增加 `features`
+1.6.0 起，`Hub.IsE2e` 与 `MessageRepo.IsE2e` 将 `e2e:` 与 `e2e2:` 都视为密文。位置密文上限由 512 调整为 1024 个字符。`tools/e2e.py` 包含对应用例。
+
+## 2. hello.features
 
 ```json
 "features": {"stt": true, "geo": true, "tiles": true}
 ```
 
-- `stt`：`POST /stt` 可用（服务器配置了转写后端）。
-- `geo`：`/geo/*` 可用（服务器配置了高德 Web 服务 key）。
-- `tiles`：`/tiles/` 可用（nginx 里配置了瓦片反代）。
-缺省全为 false；老客户端忽略这个字段。
+- `stt`：`POST /stt` 可用，即已配置转写后端。
+- `geo`：`/geo/*` 可用，即已配置地图 Web 服务密钥。
+- `tiles`：`/tiles/` 可用，即 nginx 已配置瓦片反代。
 
-## 2. 位置
+缺省均为 false。旧客户端忽略该对象。1.7 在此对象上增加 `tileDatum`。
 
-线上格式不变：`lat,lng|accuracy|address|live`，坐标一律 **WGS-84**（手机 GPS 原始坐标）。
-服务器和高德之间的 GCJ-02 转换在服务器做，客户端不用管。
+## 3. 位置与地理接口
 
-### 2.1 瓦片 `GET /tiles/{z}/{x}/{y}.png`（nginx，无鉴权）
+线上位置格式不变：`lat,lng|accuracy|address|live`。坐标一律为 WGS-84，即设备 GPS 的原始坐标。服务端与地图供应商之间的 GCJ-02 转换在服务端完成。
 
-标准 XYZ 瓦片（Web Mercator，256px，z ≤ 19），上游 OpenStreetMap，nginx `proxy_cache` 30 天，带 UA。
-客户端 `TileMap` 用它画可拖拽缩放的地图；换上游只改 nginx，不用发版。
+### 3.1 瓦片
 
-### 2.2 `GET /geo/regeo?lat=&lng=`（鉴权）
+`GET /tiles/{z}/{x}/{y}.png` 由 nginx 提供，不要求认证。格式为 XYZ（Web Mercator，256 像素，`z` 最大 19）。上游为 OpenStreetMap，`proxy_cache` 30 日，请求带 User-Agent。更换上游只修改 nginx，不要求发布新客户端。
 
-逆地理：返回这个点的中文地址和附近地点（微信选点页的列表就是它）。
+### 3.2 逆地理
 
-```json
-{"address": "上海市黄浦区南京东路街道人民广场", "name": "人民广场",
- "pois": [{"name": "人民广场", "address": "南京西路 75 号", "lat": 31.2304, "lng": 121.4737, "distance": 12, "type": "风景名胜"}]}
-```
-
-`pois` 最多 20 个，按距离排序；`lat`/`lng` 已转回 WGS-84。找不到时 `address` 为 `"纬度 x，经度 y"`，`pois` 为空。
-
-### 2.3 `GET /geo/around?lat=&lng=&q=&page=`（鉴权）
-
-附近关键字搜索（半径 2 km，每页 20，`page` 从 1 起）。`q` 为空时返回附近的热门地点。返回同 `pois`。
-
-### 2.4 `GET /geo/search?q=&lat=&lng=`（鉴权）
-
-全城搜索（选点页顶部的搜索框；`lat`/`lng` 用来确定城市和排序）。返回同 `pois`。
-
-### 2.5 错误
-
-- 503 `{"code":"geo_unavailable"}`：服务器没配 `CHATTER_AMAP_KEY`。
-- 502 `{"code":"geo_upstream"}`：高德返回错误（`message` 带高德的 info）。
-- 参数越界（纬度不在 ±90 内等）400。
-服务器按每连接令牌桶限速（沿用 1.5 的 sends 桶）；客户端拖地图时至少 600 ms 才发一次 regeo。
-
-## 3. 转文字 `POST /stt`（鉴权）
-
-`multipart/form-data`：`file`（m4a/aac、ogg/opus、wav、mp3，≤ 20 MB，≤ 5 分钟）、可选 `language`（默认 `zh`）。
+`GET /geo/regeo?lat=&lng=`，要求认证。返回该点的地址与附近地点。
 
 ```json
-{"text": "明天下午三点提醒我开会", "language": "zh", "durationMs": 3120}
+{
+  "address": "示例路 1 号",
+  "name": "示例地点",
+  "pois": [
+    {"name": "示例地点", "address": "示例路 1 号", "lat": 0.0, "lng": 0.0, "distance": 12, "type": "地名"}
+  ]
+}
 ```
 
-- 503 `{"code":"stt_unavailable"}`：服务器没配后端。
-- 413：太大。 502 `{"code":"stt_upstream"}`：后端失败。
-服务器只是代理：`CHATTER_STT_URL`（OpenAI 兼容的 `/v1/audio/transcriptions`）、`CHATTER_STT_KEY`、`CHATTER_STT_MODEL`。
-默认后端是 VPS 上的 `sherpa-onnx` + SenseVoice（`deploy/stt-setup.sh`），中文效果好、CPU 就够（一条 10 秒语音约 1 秒）。
-客户端策略：有系统识别器时先用本机（免流量、有实时字幕）；没有（Android 12 国产 ROM 常见）就用 `/stt`。
+`pois` 最多 20 条，按距离排序。返回的 `lat` 与 `lng` 已转回 WGS-84。无结果时 `address` 为 `"纬度 x，经度 y"`，`pois` 为空数组。
 
-## 4. 文件与图片
+### 3.3 附近与城市检索
 
-无协议变化。`GET /media/{id}?dl=1` 仍然返回 `Content-Disposition: attachment; filename=…`。
+`GET /geo/around?lat=&lng=&q=&page=`，要求认证。半径 2 km，每页 20 条，`page` 从 1 起。`q` 为空时返回附近地点。响应元素与 `pois` 相同。
+
+`GET /geo/search?q=&lat=&lng=`，要求认证。按城市检索；`lat` 与 `lng` 用于确定城市与排序。响应元素与 `pois` 相同。
+
+### 3.4 错误
+
+- 503 `{"code":"geo_unavailable"}`：未配置 `CHATTER_AMAP_KEY`。
+- 502 `{"code":"geo_upstream"}`：上游返回错误，`message` 含上游信息。
+- 400：参数越界，例如纬度不在 ±90 内。
+
+地理接口沿用 1.5 的发送速率桶。客户端拖动地图时，两次 `regeo` 的间隔不得小于 600 ms。
+
+## 4. 转写
+
+`POST /stt`，要求认证。正文为 `multipart/form-data`：字段 `file`（m4a/aac、ogg/opus、wav 或 mp3，不超过 20 MB，不超过 5 分钟），可选 `language`，默认 `zh`。
+
+```json
+{"text": "转写结果", "language": "zh", "durationMs": 3120}
+```
+
+- 503 `{"code":"stt_unavailable"}`：未配置后端。
+- 413：体积超限。
+- 502 `{"code":"stt_upstream"}`：后端失败。
+
+服务端只做代理。相关变量为 `CHATTER_STT_URL`（OpenAI 兼容的 `/v1/audio/transcriptions`）、`CHATTER_STT_KEY` 与 `CHATTER_STT_MODEL`。`deploy/stt-setup.sh` 安装的默认后端为本机 `sherpa-onnx` 与 SenseVoice，监听 `127.0.0.1:5090`。
+
+客户端策略：设备具备本地识别器时优先在设备上识别；不具备时调用 `/stt`。后续版本将设备上的 SenseVoice 作为默认路径，云端识别改为设置项。
+
+## 5. 文件与图像
+
+本版本不改变媒体协议。`GET /media/{id}?dl=1` 仍返回 `Content-Disposition: attachment`，并带文件名。

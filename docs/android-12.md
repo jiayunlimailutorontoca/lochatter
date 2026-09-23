@@ -1,24 +1,22 @@
-# Android 12（API 31）兼容检查（1.6.0）
+# Android 12 兼容核对
 
-用户的手机是 Android 12 的国产 ROM，没有 Google 服务。逐项核对 `android/` 里所有 `Build.VERSION.SDK_INT` 分支和需要分支的 API：
+核对对象为 Android 12（API 31）的无 Google 服务运行环境。范围是 `android/` 中按 `SDK_INT` 分叉的调用。结论供后续修改这些 API 时复查。
 
 | 项目 | 结论 |
 |---|---|
-| 系统语音识别 `SpeechRecognizer` | 国产 ROM 常常没有任何识别服务。听写不再用它：默认在手机上跑 sherpa-onnx SenseVoice。云端地址在设置 → 语音识别里另开。 |
-| 语音条转文字 | 不再走 API 33 的 `EXTRA_AUDIO_SOURCE`。语音在手机上解成 16 kHz，用本机 SenseVoice 识别；设置里打开云端后才上传。 |
-| 开车模式朗读 `TextToSpeech` | 没有中文引擎时 `speak()` 静默失败。1.6 打开开车模式时 `checkChineseTts()` 检查并提示装引擎；免提听写靠 `speaking` 状态等朗读结束。 |
-| 前台服务从后台启动 | 31+ 会抛 `ForegroundServiceStartNotAllowedException`；`ChatService.start()` / `setScreenShare()` 已 try/catch。 |
-| `PendingIntent` 可变性 | 31+ 必须显式 `FLAG_IMMUTABLE` / `FLAG_MUTABLE`；`Notifications.kt` 五处都已��。 |
-| 精确闹钟 `SCHEDULE_EXACT_ALARM` | 31+ 需要授权；`ScheduledSendReceiver` / `WatchdogReceiver` 在 `canScheduleExactAlarms()` 为 false 时退到 `setAndAllowWhileIdle`。 |
-| `registerReceiver` 导出标记 | 只影响 33+（`UpdateChecker` 已带 `RECEIVER_EXPORTED`）；电量广播是系统广播，31 上无需标记。 |
-| `POST_NOTIFICATIONS` | 33+ 才存在，`ChatScreen` 里已按版本判断，31 上不申请。 |
-| `getParcelableExtra(name, Class)` | 33+ 的重载，`MainActivity` 三处都有 `< 33` 的旧路径。 |
-| `Geocoder.getFromLocation(listener)` | 33+，`Locator.geocode` 在 31 上走同步旧接口（IO 线程）。 |
-| 屏幕共享前台服务类型 | 34+ 的 `mediaProjection` 类型；`ChatService` 在 29~33 上用无类型的旧路径。 |
-| 蓝牙 `BLUETOOTH_CONNECT` | 31+ 运行时权限，通话页已按版本申请；30 及以下走 manifest 的 `BLUETOOTH`。 |
-| 画中画 `setAutoEnterEnabled` | 31+ 才有，已判断。 |
-| `MediaRecorder(Context)` | 31+ 构造函数，`VoiceRecorder` 已判断。 |
-| `MediaStore` 保存 | 29+ 用 `MediaStore.Downloads` / `RELATIVE_PATH`，无需存储权限；28 及以下才申请 `WRITE_EXTERNAL_STORAGE`。 |
-| 地图 App 可见性 | 30+ 需要 manifest `<queries>`，1.6 已加（高德 / 百度 / 腾讯 / Google + `geo:`）。 |
+| 系统语音识别 | 目标运行环境通常没有识别服务。语音消息默认在设备上使用 SenseVoice。设置切换为云端后才上传 |
+| 驾车模式朗读 | 没有中文引擎时 `speak()` 失败且不抛出到界面。开启驾车模式时检查引擎并提示安装 |
+| 从后台启动前台服务 | API 31 起可能抛出 `ForegroundServiceStartNotAllowedException`。`ChatService.start()` 与屏幕共享路径捕获该异常 |
+| `PendingIntent` | API 31 起必须指定 `FLAG_IMMUTABLE` 或 `FLAG_MUTABLE`。通知相关调用已指定 |
+| 精确闹钟 | 无 `SCHEDULE_EXACT_ALARM` 权限时退回到 `setAndAllowWhileIdle`。系统推迟闹钟属于预期行为 |
+| `registerReceiver` | 导出标记约束 API 33 及以上。API 31 上的电量广播不需要该标记 |
+| 通知权限 | `POST_NOTIFICATIONS` 自 API 33 起存在。API 31 不申请该权限 |
+| `getParcelableExtra` | API 33 的新重载在 API 31 上走旧重载 |
+| 逆地理编码 | API 33 的异步 `Geocoder` 在 API 31 上使用同步接口，调用位于 IO 线程 |
+| 屏幕共享的前台服务类型 | `mediaProjection` 自 API 34 起要求。API 29–33 使用不带该类型的路径 |
+| 蓝牙 | API 31 起在运行时申请 `BLUETOOTH_CONNECT`。API 30 及以下使用清单中的 `BLUETOOTH` |
+| 画中画、`MediaRecorder(Context)` | 均为 API 31 才提供，调用前有版本判断 |
+| 保存到系统相册 | API 29 起使用 `MediaStore`，不申请存储权限 |
+| 打开地图应用 | API 30 起须在清单中声明 `<queries>`。已声明高德、百度、腾讯、Google 与 `geo:` |
 
-没有发现会在 Android 12 上崩溃的调用。1.5 在这台手机上的两个「不能用」都是语音识别的可用性问题：1.6 先改成服务器转文字，现在默认在手机上用 SenseVoice。
+核对中未发现会在 Android 12 上直接崩溃的调用。语音识别不可用是运行环境没有识别服务，不是进程崩溃。

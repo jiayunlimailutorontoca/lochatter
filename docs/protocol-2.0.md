@@ -1,46 +1,46 @@
-# 协议增量 2.0：和助手打电话
+# 协议增量 2.0.0
 
-当前服务端 2.0.0，Android 2.0.0。两人之间的通话帧和以前一样。这一版多了一条只属于「人和助手」的通话。
+服务端与 Android 客户端的版本均为 2.0.0。双人通话的帧保持不变。本版本增加用户与助手之间的通话。
 
-## 谁和谁通话
+## 1. call.invite
 
-`call.invite` 多一个可选字段 `bot: true`。为真时：
+`call.invite` 增加可选字段 `bot`（布尔）。值为 true 时：
 
-- 只发给助手的连接，不发给另一个人。
-- 助手不在线回 `call.reject {reason:"offline"}`；已经有一路助手通话回 `busy`。
-- `video: true` 直接回 `voice_only`，不建立通话。助手这一版只说话。
-- 之后的 `call.accept` / `reject` / `hangup` / `sdp` / `ice` / `media` 只在打电话的那个人和助手之间转发。
-- 挂断之后同一个 `callId` 再来的帧丢掉，不会漏到两个人的通话里。
+- 帧只发给助手连接，不发给另一名人类用户。
+- 助手不在线时返回 `call.reject {reason:"offline"}`。已存在一路助手通话时返回 `busy`。
+- `video` 为 true 时直接返回 `voice_only`，不建立通话。本版本的助手通话只有音频。
+- 此后的 `call.accept`、`reject`、`hangup`、`sdp`、`ice`、`media` 只在发起通话的用户与助手之间转发。
+- 挂断之后，同一 `callId` 上后续到达的帧丢弃，不进入双人通话。
 
-助手仍然不能自己 `call.invite`（`unsupported`）。它可以回 accept、sdp、ice、media、hangup，也可以 `turn.get` 拿和手机一样的 TURN 账号。媒体走 WebRTC（P2P，不行就用现成的 coturn），不经过聊天服务器解码。
+助手不能发送 `call.invite`，否则返回 `unsupported`。助手可以发送 `accept`、`sdp`、`ice`、`media`、`hangup`，也可以 `turn.get`，凭据与人类客户端相同。媒体为 WebRTC，优先直连，失败时使用已配置的 coturn。聊天服务不解码媒体。
 
-和助手的 SDP、ICE 是明文。助手没有两人那把端到端密钥。音频本身仍是 DTLS-SRTP。两人通话的 SDP / ICE 照旧加密。
+与助手交换的 SDP 与 ICE 为明文。助手不持有双人会话密钥。音频仍由 DTLS-SRTP 保护。双人通话的 SDP 与 ICE 仍为密文。
 
-## call.caption
+## 2. call.caption
 
 ```json
-{"t":"call.caption","callId":"...","who":"user","text":"你好","state":"final","phase":"thinking"}
+{"t":"call.caption","callId":"...","who":"user","text":"文本","state":"final","phase":"thinking"}
 ```
 
-| 字段 | 含义 |
+| 字段 | 约束 |
 |---|---|
 | who | `user` 或 `assistant` |
-| state | `partial`（正在说）或 `final`（这句定了） |
-| phase | 可省略。`listening` / `thinking` / `speaking` / `idle` / `error` |
-| text | 最多 2000 字，可以是空的（只更新 phase） |
+| state | `partial` 或 `final` |
+| phase | 可省略。取值为 `listening`、`thinking`、`speaking`、`idle`、`error` |
+| text | 最长 2000 个字符。可以为空，此时只更新 `phase` |
 
-服务端检查这通电话还在，并且发送者是其中一方，然后只转给另一方，填上 `from`。过期的 call id 直接忽略。`who` 或 `state` 不合法回 `bad_request`。
+服务端确认该通话仍存在，且发送者是通话的一方，然后只转发给另一方，并填写 `from`。过期的 `callId` 忽略。`who` 或 `state` 非法时返回 `bad_request`。
 
-手机上：别的 call id、挂断之后、比这句更早的字幕，都不显示。
+客户端不显示其他 `callId` 的字幕，不显示挂断之后到达的字幕，也不显示比当前句更早的字幕。
 
-## 助手进程里发生什么
+## 3. 助手侧处理
 
-NAS 上的插件（`hermes/lochatter/voice_call.py`）用 aiortc 当 WebRTC 的另一端。人声用能量 VAD 切段，整段 wav 交给 hub 的 `POST /v1/audio/transcriptions`，文本走 Hermes 原来的提问流程。回复按句切，再 `POST /v1/audio/speech`，PCM 送回通话。播放时检测到人声就停播并取消这一轮，不会把已经取消的那轮再跑一遍；转写失败可以同一段再试一次。
+插件 `hermes/lochatter/voice_call.py` 以 aiortc 作为 WebRTC 对端。人声由能量 VAD 分段，整段 wav 提交到模型服务的 `POST /v1/audio/transcriptions`。文本进入 Hermes 既有的处理流程。回复按句切分，再请求 `POST /v1/audio/speech`，PCM 送回通话。播放期间若检测到人声，则停止播放并取消本轮，已取消的轮次不得再次执行。转写失败时，同一段可以重试一次。
 
-模型名不写死。NAS 上配置 `LOCHATTER_STT_MODEL`、`LOCHATTER_TTS_MODEL`（计划里的 whisper 与 mimo-v2.5-tts 要等 hub 实测后再填）。密钥用 `LOCHATTER_STT_KEY`，没有就读 `OPENAI_API_KEY`。没装 aiortc 时助手回 `unavailable`，手机提示改用按住说话。
+模型标识不在源码中固定。运行环境设置 `LOCHATTER_STT_MODEL` 与 `LOCHATTER_TTS_MODEL`，值必须是模型服务实际列出的标识。密钥使用 `LOCHATTER_STT_KEY`；未设置时读取 `OPENAI_API_KEY`。未安装 aiortc 时，助手返回 `unavailable`，客户端改为使用按住说话。
 
-接通后助手先说「我在，你说。」，不等模型想完。
+接通后，助手先发送固定开场句，不等待模型完成本轮推理。
 
-## 登出
+## 4. 登出
 
-登出时内存里的头像、签名、聊天置顶、助手置顶、助手未读都清掉，共享资料缓存写成空。下次 hello 只恢复当前账号的共享资料。
+登出时清除内存中的头像、签名、聊天置顶、助手置顶与助手未读，并将共享资料缓存置空。下一次 `hello` 只恢复当前账号的共享资料。

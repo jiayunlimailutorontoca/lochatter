@@ -1,3 +1,4 @@
 # Copy to android/server.properties (gitignored).
-# This URL is baked into a fresh install as the server field. Already-installed apps keep whatever they saved.
+# Baked into a fresh install. Already-installed apps keep the address they saved.
+# A build also accepts CHATTER_SERVER_URL, or https:// plus CHATTER_DOMAIN, and those win over this file.
 serverUrl=https://chat.example.com

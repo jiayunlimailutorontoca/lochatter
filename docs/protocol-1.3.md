@@ -1,62 +1,75 @@
-# 1.3.0 协议增量（schema 7）
+# 协议增量 1.3.0
 
-在 [protocol.md](protocol.md) 基础上新增/修改。三端（server / android / hermes）以此为准。所有新字段都是可选的，旧客户端忽略即可。
+相对 [protocol.md](protocol.md)。schema 为 7。新增字段均为可选；不识别这些字段的客户端须忽略它们。服务端、Android 客户端与 Hermes 插件以本文为准。
 
-## hello
+## 1. hello
 
-- `peer` 增加 `battery?: int`(0-100) 与 `charging?: bool`。
-- `bot` 变为 `{id, name, online, ttl}`；`ttl` 为「助手消息是否跟随定时销毁」（服务端设置 `bot_ttl`，默认 true）。`bot` 帧同样带 `ttl`。
-- 助手连接（用户 0）的 hello 多一个 `users: [{id, name}]`（两个人类的 id 和名字），人类连接没有此字段。
-- 人类连接的 hello 多一个 `shared: [{key, value, updatedAt}]`（共享键值全量快照，见下）。
+- `peer` 增加 `battery`（整数，0–100）与 `charging`（布尔）。
+- `bot` 的结构为 `{id, name, online, ttl}`。`ttl` 表示助手消息是否参与定时销毁，对应服务端设置 `bot_ttl`，默认 true。`bot` 帧同样携带 `ttl`。
+- 助手连接（用户 0）的 `hello` 增加 `users: [{id, name}]`，内容为两名人类用户。人类连接没有该字段。
+- 人类连接的 `hello` 增加 `shared: [{key, value, updatedAt}]`，为共享键值的全量快照。
 
-## active / presence
+## 2. active 与 presence
 
-- `active` C→S：`{fg, battery?, charging?}`。手机在前后台切换、电量每变化 ≥ 5% 或充电状态变化时发送。
-- 服务端为每个人类用户记住最近一次上报的 battery/charging（内存即可）；值变化时向对方广播 `presence {user, online, lastSeen?, battery?, charging?}`（online/lastSeen 按现有逻辑填）。`presence` 帧的 `battery`/`charging` 可选。
+`active`（C→S）的结构为 `{fg, battery?, charging?}`。客户端在前后台切换时发送；电量变化达到或超过 5 个百分点，或充电状态变化时，也发送。
 
-## 共享键值（shared）
+服务端在内存中保存每名人类用户最近一次上报的 `battery` 与 `charging`。值变化时向对端广播 `presence {user, online, lastSeen?, battery?, charging?}`。`online` 与 `lastSeen` 的规则与基线相同。`presence` 中的 `battery` 与 `charging` 可选。
 
-两人共用的小配置：助手快捷指令、纪念日、自定义表情收藏。值对服务端不透明（客户端可以放明文 JSON，也可以放 `e2e:` 密文）。
+## 3. 共享键值
 
-- `GET /shared` → `[{key, value, updatedAt}]`（人类）。
-- `PUT /shared/{key}`，body `{"value": "..."}`，key 匹配 `^[a-z0-9_-]{1,32}$`，value ≤ 65536 字符；人类才可写；助手 403。返回 200 `{key, value, updatedAt}`，并向**所有人类连接**（含发送者自己）广播帧 `shared {key, value, updatedAt}`。
-- 表 `shared(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL, updated_by INTEGER)`。
-- 约定的 key：`quick`（JSON 字符串数组，助手快捷指令，明文）、`anniv`（JSON，纪念日，客户端 e2e 加密）、`stickers`（JSON，自定义表情收藏，客户端 e2e 加密）。
+共享键值保存双方共用的小配置，包括助手快捷指令、纪念日与自定义表情收藏。服务端不解析 `value`。客户端可以存放明文 JSON，也可以存放 `e2e:` 密文。
 
-## msg.send 新 kind
+- `GET /shared` 返回 `[{key, value, updatedAt}]`。仅人类用户可调用。
+- `PUT /shared/{key}` 的正文为 `{"value":"..."}`。`key` 须匹配 `^[a-z0-9_-]{1,32}$`，`value` 最长 65536 个字符。仅人类用户可写，助手返回 403。成功时返回 200 `{key, value, updatedAt}`，并向全部人类连接（含发送者）广播帧 `shared {key, value, updatedAt}`。
+- 表结构：`shared(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL, updated_by INTEGER)`。
 
-| kind | 谁能发 | text | 说明 |
+约定键：
+
+| key | 内容 |
+|---|---|
+| `quick` | JSON 字符串数组。助手快捷指令，明文 |
+| `anniv` | JSON。纪念日，由客户端以 `e2e:` 加密 |
+| `stickers` | JSON。自定义表情收藏，由客户端以 `e2e:` 加密 |
+
+## 4. 新增 kind
+
+| kind | 发送者 | text | 规则 |
 |---|---|---|---|
-| `sticker` | 人类、助手 | 必填，≤ 512 字符，人类之间 e2e 加密，发给助手时明文 | 表情。明文格式 `bqb\|<path>\|<w>\|<h>`（`path` 是表情库相对路径，如 `media/xxx.jpg`）或 `media\|<mediaId>\|<w>\|<h>`（自定义表情，同时把 `mediaId` 字段也填上，服务端校验存在并参与引用计数）。`bqb` 形式不带 mediaId。引用摘要 `[表情]`。计入 ContentKinds（跟随定时销毁）。 |
-| `pat` | 人类 | 可选（≤ 64，可 e2e） | 拍一拍。不能发给助手。客户端显示为系统行「你拍了拍 xx」并震动。摘要 `[拍一拍]`。计入 ContentKinds。 |
-| `card` | 只有助手 | 必填 ≤ MaxTextChars | 助手主动播报（cron 天气、提醒）。第一行是标题，其余正文（markdown）。摘要为第一行（≤ 120）。人类发 → bad_request。计入 ContentKinds。 |
+| `sticker` | 人类、助手 | 必填，最长 512 字符。人类之间为密文，发给助手时为明文 | 明文格式为 `bqb\|<path>\|<w>\|<h>` 或 `media\|<mediaId>\|<w>\|<h>`。`path` 为表情库相对路径。`media` 形式必须同时填写 `mediaId`，服务端校验对象存在并计入引用。`bqb` 形式不带 `mediaId`。引用摘要为 `[表情]`。属于内容消息，参与定时销毁 |
+| `pat` | 人类 | 可选，最长 64 字符，可以为密文 | 不能发给助手。客户端显示为系统行。摘要为 `[拍一拍]`。属于内容消息 |
+| `card` | 仅助手 | 必填，最长为文本上限 | 助手主动播报。第一行为标题，其余为正文。摘要取第一行，最长 120 字符。人类发送则返回 `bad_request`。属于内容消息 |
 
-`msg.send` 与 `msg`（msg.new / msg.batch 里的消息）新增可选布尔字段 `once`：阅后即焚，只对 `image` / `video` 有意义，人类之间；服务端原样存储在 `messages.once INTEGER` 并回显。接收方打开后由接收方客户端发 `del`。
+`msg.send` 与同步下来的消息增加可选布尔字段 `once`。它只对人类之间的 `image` 与 `video` 有意义。服务端将其存入 `messages.once` 并原样回显。接收方打开后，由接收方发送 `del`。
 
-## edit 压缩
+## 5. edit 压缩
 
-插入 `kind:"edit"` 行之前，删除同一 `from_user`、text 以 `<目标 id>|` 开头的旧 `edit` 行（每条消息只保留最新一条编辑记录）。seq 出现空洞是正常的。
+插入 `kind:"edit"` 之前，删除同一发送者、且 `text` 以 `<目标 id>|` 开头的旧 `edit` 行。每条消息只保留最新一次编辑。`seq` 出现空缺是正常结果。
 
-## 助手与定时销毁
+## 6. 助手与定时销毁
 
-- 设置项 `bot_ttl`（SettingsRepo，默认 "1"）。`POST /bot/ttl {"enabled": bool}`（人类），改后 NotifyBot（bot 帧带 `ttl`）。
-- 计算 expiresAt 时：`ContentKinds.Contains(kind) && (bot_ttl || (!IsBot(uid) && !toBot))`。也就是 `bot_ttl` 打开时，发给助手的和助手发的一样过期。
-- `del` / `clear` 控制条目也要发给助手连接（无论目标是谁），助手据此清理本地媒体缓存；`sync` 的 FilterForBot 同样放行 `del` / `clear`。
+设置项 `bot_ttl` 默认 `"1"`。`POST /bot/ttl {"enabled": bool}` 仅人类用户可调用。修改后通过 `bot` 帧通知，帧中带 `ttl`。
 
-## 通话
+计算 `expiresAt` 的条件为：`kind` 属于内容类型，且（`bot_ttl` 为开，或发送者与接收者都不是助手）。因此 `bot_ttl` 打开时，发给助手的消息与助手发出的消息同样过期。
 
-- `call.emoji {callId, emoji, from}`：通话中的表情浮层，emoji ≤ 16 字符，服务端只转发并填 `from`，助手不可发。
-- 共享白板走 WebRTC DataChannel（label `wb`），不经服务器。
+`del` 与 `clear` 也发给助手连接，供助手清理本地媒体缓存。助手的 `sync` 过滤同样放行这两类控制消息。
 
-## 表情库静态资源
+## 7. 通话与表情库
 
-nginx 新增 `location /stickers/`：反代到 `https://zhaoolee.com/ChineseBQB/`（`proxy_ssl_server_name on`，`proxy_set_header Host zhaoolee.com`），带 `proxy_cache`（`/var/cache/nginx/stickers`，`max_size=2g`，`inactive=30d`，`proxy_cache_valid 200 30d`），无需认证。`proxy_cache_path` 放在 `deploy/nginx-stickers-cache.conf`，deploy.sh 安装到 `/etc/nginx/conf.d/`。客户端访问：`${server}/stickers/catalog/index.json`、`${server}/stickers/catalog/search.json`、`${server}/stickers/<src>`、`${server}/stickers/<thumb>`。
+`call.emoji` 的字段为 `{callId, emoji, from}`。`emoji` 最长 16 个字符。服务端只转发并填写 `from`。助手不能发送该帧。共享白板使用 WebRTC DataChannel，标签为 `wb`，不经过聊天服务。
 
-`index.json`：`{"categories":[{slug, number, title, folder, count, cover{...}, url, bytes, download}]}`（114 个分类）。
-`search.json`：`[{id, name, path, label, src, thumb, width, height, animated, bytes, category, categoryUrl, categoryTitle, folder}]`（5871 张，1280 张动图；3.3 MB）。
+nginx 增加 `location /stickers/`，反向代理到 `https://zhaoolee.com/ChineseBQB/`，设置 `proxy_ssl_server_name on` 与 `Host: zhaoolee.com`。缓存目录为 `/var/cache/nginx/stickers`，`max_size=2g`，`inactive=30d`，状态码 200 的缓存有效期 30 日。该位置不要求认证。`proxy_cache_path` 位于 `deploy/nginx-stickers-cache.conf`，由 `deploy.sh` 安装到 `/etc/nginx/conf.d/`。
 
-## 版本
+客户端访问路径：
 
-- 服务端 `<Version>1.3.0</Version>`，schema 7（`messages.once`，表 `shared`）。
-- 安卓 versionCode 20 / versionName 1.3.0，本地 SQLite schema 7。
-- Hermes 插件 plugin.yaml version 1.3.0。
+- `${server}/stickers/catalog/index.json`
+- `${server}/stickers/catalog/search.json`
+- `${server}/stickers/<src>`
+- `${server}/stickers/<thumb>`
+
+`index.json` 的结构为 `{"categories":[{slug, number, title, folder, count, cover, url, bytes, download}]}`。`search.json` 为对象数组，元素含 `id, name, path, label, src, thumb, width, height, animated, bytes, category, categoryUrl, categoryTitle, folder`。
+
+## 8. 版本对应关系
+
+- 服务端版本 1.3.0，schema 7。新增 `messages.once` 与表 `shared`。
+- Android `versionCode` 20，`versionName` 1.3.0，本地 SQLite schema 7。
+- Hermes 插件 `plugin.yaml` 版本 1.3.0。

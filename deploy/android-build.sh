@@ -11,6 +11,10 @@ if [ -f /etc/chatter/deploy.env ]; then
   set +a
 fi
 DOMAIN=${CHATTER_DOMAIN:-chat.example.com}
+DOMAIN=${DOMAIN#https://}
+DOMAIN=${DOMAIN#http://}
+DOMAIN=${DOMAIN%/}
+export CHATTER_SERVER_URL="https://${DOMAIN}"
 SRC=/opt/chatter/src
 OUT=/var/www/chatter
 LOG=/opt/chatter/android-build.log

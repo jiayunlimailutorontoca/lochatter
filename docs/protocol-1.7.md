@@ -1,19 +1,24 @@
-# 协议增量 1.7（相对 1.6）
+# 协议增量 1.7.0
 
-服务器 1.7.0，schema 不变（7）。
+相对 1.6.0。服务端版本 1.7.0。schema 保持为 7。
 
-## 1. 撤回 `recall`
+## 1. 撤回
 
-`msg.send` 新 kind `recall`，`text` = 自己某条消息的客户端 id，发出后 2 分钟内有效；人和助手都能撤回自己的。
-服务器把目标行改成 `kind = "recall"`、清空 `text` / `mediaId`（媒体文件随即删除），然后把这条 `recall` 控制消息像 `del` 一样广播；
-晚同步的客户端在 `msg.batch` 里看到的目标行就是 `recall`。客户端把它渲染成居中灰字「xx 撤回了一条消息」，自己的文本撤回可「重新编辑」。
-撤回别人的、超过 2 分钟的、`call` / `pat` 的：`bad_request`。助手适配器把 `recall` 当 `del` 处理（清本地媒体缓存）。
+`msg.send` 增加 `kind` `recall`。`text` 为发送者自己某条消息的客户端 `id`，且该消息的发送时间距现在不超过 2 分钟。人类用户与助手都可以撤回自己的消息。
+
+服务端将目标行改为 `kind = "recall"`，清空 `text` 与 `mediaId`，并删除对应媒体文件。然后将该 `recall` 控制消息按 `del` 的方式广播。较晚同步的客户端在 `msg.batch` 中看到的目标行已经是 `recall`。
+
+客户端将其渲染为居中的系统文字。发送者对自己的文本撤回可以重新编辑。撤回他人消息、超过 2 分钟、或目标为 `call` / `pat` 时，返回 `bad_request`。助手插件将 `recall` 按 `del` 处理，并清理本地媒体缓存。
 
 ## 2. 瓦片坐标系
 
-`hello.features` 增加 `tileDatum`：`"wgs84"`（`/tiles/`，OpenStreetMap）或 `"gcj02"`（`/amap-tiles/`，高德栅格；服务器 `CHATTER_TILES=amap`）。
-线上位置坐标始终 WGS-84；`gcj02` 时客户端画图时转换（`Gcj02.kt`），拖动 / 缩放后再转回。
+`hello.features` 增加 `tileDatum`：
 
-## 3. 无变化
+- `"wgs84"`：瓦片路径 `/tiles/`，数据源为 OpenStreetMap。
+- `"gcj02"`：瓦片路径 `/amap-tiles/`。服务端 `CHATTER_TILES=amap` 时使用该值。
 
-转发在客户端完成（重新发送 / 重新上传）；多选、语音已听、草稿都是本地状态。
+消息中的位置坐标始终为 WGS-84。`tileDatum` 为 `gcj02` 时，客户端只在绘制时转换（`Gcj02.kt`），拖动或缩放结束后转回 WGS-84 再提交。
+
+## 3. 不进入协议的行为
+
+转发在客户端完成，方式为重新发送或重新上传。多选、语音已听状态与草稿只保存在本机，没有对应帧。

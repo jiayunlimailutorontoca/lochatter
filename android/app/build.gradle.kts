@@ -14,12 +14,21 @@ val keystoreProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 
-// First-run server URL. android/server.properties is gitignored; see server.properties.example.
-val defaultServer = Properties().apply {
-    val f = rootProject.file("server.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}.getProperty("serverUrl")?.trim().orEmpty().ifEmpty { "https://chat.example.com" }
-    .replace("\\", "\\\\").replace("\"", "\\\"")
+// First-run server URL, baked into BuildConfig. Already-installed apps keep their saved address.
+// Order: CHATTER_SERVER_URL, android/server.properties, https://$CHATTER_DOMAIN, then the example host.
+fun envUrl(name: String) = System.getenv(name)?.trim().orEmpty()
+val defaultServer = run {
+    val explicit = envUrl("CHATTER_SERVER_URL")
+    if (explicit.isNotEmpty()) return@run explicit
+    val fromFile = Properties().apply {
+        val f = rootProject.file("server.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }.getProperty("serverUrl")?.trim().orEmpty()
+    if (fromFile.isNotEmpty()) return@run fromFile
+    val domain = envUrl("CHATTER_DOMAIN").removePrefix("https://").removePrefix("http://").trimEnd('/')
+    if (domain.isNotEmpty()) return@run "https://$domain"
+    "https://chat.example.com"
+}.replace("\\", "\\\\").replace("\"", "\\\"")
 
 
 android {
@@ -30,8 +39,8 @@ android {
         applicationId = "ink.jvm.chatter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "2.1.2"
+        versionCode = 36
+        versionName = "2.2.0"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
 
