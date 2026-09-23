@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>chatter-stt</AssemblyName>
+    <RootNamespace>Chatter.Stt</RootNamespace>
+    <Version>2.0.0</Version>
+
+    <!-- Native AOT. Built on the Linux server by deploy/stt-setup.sh; Windows cannot cross-compile it. -->
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <StripSymbols>true</StripSymbols>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- One request at a time. Workstation GC avoids the server GC's per-heap reserve. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+</Project>

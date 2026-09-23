@@ -1,0 +1,3 @@
+# Copy to android/server.properties (gitignored).
+# This URL is baked into a fresh install as the server field. Already-installed apps keep whatever they saved.
+serverUrl=https://chat.example.com

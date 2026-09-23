@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="call_voice"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_call"
+        android:shortcutShortLabel="@string/shortcut_voice"
+        android:shortcutLongLabel="@string/shortcut_voice">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="ink.jvm.chatter"
+            android:targetClass="ink.jvm.chatter.ui.MainActivity">
+            <extra android:name="action" android:value="call_voice" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="call_video"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_video"
+        android:shortcutShortLabel="@string/shortcut_video"
+        android:shortcutLongLabel="@string/shortcut_video">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="ink.jvm.chatter"
+            android:targetClass="ink.jvm.chatter.ui.MainActivity">
+            <extra android:name="action" android:value="call_video" />
+        </intent>
+    </shortcut>
+</shortcuts>

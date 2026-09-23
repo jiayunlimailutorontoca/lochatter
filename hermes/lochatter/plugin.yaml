@@ -1,0 +1,58 @@
+name: lochatter-platform
+label: lochatter
+kind: platform
+version: 2.0.0
+description: >
+  lochatter (the private two-person chat) adapter for Hermes Agent.
+  Dials OUT from the NAS to the public chatter server over the same
+  WebSocket protocol the phones use, so no inbound port is needed.
+  The assistant only ever receives messages the humans explicitly
+  @-mentioned it in (plaintext, dest=bot); the couple's end-to-end
+  encrypted chat never reaches it. Replies land in the chat as the
+  named assistant, streamed by editing one bubble; cron / proactive
+  delivery goes out as a card (first line = title). Questions are
+  handled off the socket read loop, sends are idempotent, the sync
+  cursor survives restarts, and Hermes's own status lines
+  (interrupt / steer / lock / delivery notices) are kept out of the chat.
+  Recommended Hermes config.yaml for this platform:
+  display.busy_input_mode: steer;
+  display.platforms.lochatter.busy_steer_ack_enabled: false;
+  display.tool_progress: off;
+  display.interim_assistant_messages: false;
+  display.long_running_notifications: false;
+  display.busy_ack_detail: false.
+author: lochatter
+requires_env:
+  - name: LOCHATTER_TOKEN
+    description: "Long-lived assistant token from `chatterctl bot token` on the chat server"
+    prompt: "lochatter assistant token"
+    password: true
+optional_env:
+  - name: LOCHATTER_URL
+    description: "Chat server base URL (default: https://chat.example.com)"
+    prompt: "lochatter server URL"
+    password: false
+  - name: LOCHATTER_HOME_CHANNEL
+    description: "Chat id for cron / notification delivery (only one exists: 'chat')"
+    prompt: "Home channel (or empty)"
+    password: false
+  - name: LOCHATTER_HUB_BASE
+    description: "OpenAI-compatible hub base, including /v1 (default https://hub.example.com/v1). Voice calls only."
+    prompt: "Hub base URL"
+    password: false
+  - name: LOCHATTER_STT_KEY
+    description: "Hub API key for transcription and speech. Falls back to OPENAI_API_KEY in the environment or HERMES_HOME/.env."
+    prompt: "Hub API key"
+    password: true
+  - name: LOCHATTER_STT_MODEL
+    description: "Transcription model id the hub actually serves. Leave empty to omit the field. Do not guess."
+    prompt: "STT model"
+    password: false
+  - name: LOCHATTER_TTS_MODEL
+    description: "Speech model id the hub actually serves. Leave empty to omit the field. Do not guess."
+    prompt: "TTS model"
+    password: false
+  - name: LOCHATTER_TTS_VOICE
+    description: "Optional voice name for /v1/audio/speech."
+    prompt: "TTS voice"
+    password: false

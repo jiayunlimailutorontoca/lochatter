@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Admin helper: runs the server binary's CLI as the service user against the live data dir.
+#   chatterctl user add <name> [password]
+#   chatterctl user list
+#   chatterctl user passwd <name> <password>
+#   chatterctl token revoke <name>
+#   chatterctl bot token | bot revoke | bot name <name>
+exec sudo -u chatter CHATTER_DATA=/var/lib/chatter /opt/chatter/rel/chatter-server "$@"

@@ -1,0 +1,42 @@
+# .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+
+# Android
+android/.gradle/
+android/build/
+android/**/build/
+android/local.properties
+android/server.properties
+android/.idea/
+android/.kotlin/
+*.jks
+*.keystore
+*.hprof
+__pycache__/
+*.pyc
+keystore.properties
+keystore.properties.tmp
+
+# Filled-in config. Copy the *.example files and edit those copies.
+deploy/local.env
+deploy/turn.env
+deploy/stt.env
+deploy/geo.env
+hermes/lochatter/.env
+*.pem
+
+# Private notes and one-off DNS tooling. They stay on disk, they are not part of the repo.
+docs/HANDOVER.md
+deploy/dnspod-move.py
+
+# misc
+.DS_Store
+Thumbs.db
+*.log
+*.baiduyun.uploading.cfg
+*.baiduyun.downloading.cfg

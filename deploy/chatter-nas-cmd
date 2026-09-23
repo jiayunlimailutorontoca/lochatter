@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Forced command for the NAS's ssh key on the VPS: only the backup read and a service restart are allowed.
+# Installed to /usr/local/bin/chatter-nas-cmd by deploy.sh; referenced from the authorized_keys line printed by nas-setup.sh.
+case "${SSH_ORIGINAL_COMMAND:-}" in
+  "rsync --server --sender "*"/var/backups/chatter/"*) exec $SSH_ORIGINAL_COMMAND ;;
+  "tar -C /var/backups -cf - chatter") exec tar -C /var/backups -cf - chatter ;;
+  "systemctl restart chatter; sleep 2; systemctl is-active chatter; systemctl reload nginx || true")
+    systemctl restart chatter; sleep 2; systemctl is-active chatter; systemctl reload nginx || true ;;
+  *) echo "denied: ${SSH_ORIGINAL_COMMAND:-}" >&2; exit 1 ;;
+esac

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="share" path="share/" />
+    <cache-path name="capture" path="capture/" />
+    <external-files-path name="apk" path="apk/" />
+    <files-path name="wallpaper" path="wallpaper/" />
+</paths>

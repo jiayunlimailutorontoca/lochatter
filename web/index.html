@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>lochatter</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.45 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #ededed; color: #111; }
+    header { background: #ededed; padding: 12px 16px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    h1 { font-size: 18px; margin: 0; font-weight: 600; }
+    main { max-width: 720px; margin: 0 auto; padding: 16px; }
+    form, .card { background: #fff; border-radius: 8px; padding: 16px; }
+    label { display: block; margin: 10px 0 4px; font-size: 13px; color: #666; }
+    input, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font: inherit; }
+    button { background: #07c160; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }
+    button.ghost { background: #f2f2f2; color: #111; }
+    .rowbtns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .err { color: #c00; min-height: 1.2em; font-size: 14px; }
+    #log { height: calc(100vh - 220px); overflow-y: auto; padding: 12px 4px; }
+    .row { display: flex; margin: 8px 0; }
+    .row.me { justify-content: flex-end; }
+    .row p, .row img { margin: 0; max-width: 70%; background: #fff; border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+    .row.me p { background: #95ec69; }
+    .row.sys p { background: transparent; color: #888; font-size: 13px; }
+    img.shot { padding: 4px; max-width: 240px; max-height: 240px; object-fit: contain; background: #fff; }
+    .composer { display: flex; gap: 8px; align-items: flex-end; }
+    .composer textarea { flex: 1; min-height: 44px; resize: vertical; }
+    #cam { width: 100%; max-height: 240px; background: #000; margin-top: 8px; }
+    .hint { color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>lochatter</h1>
+    <span id="who"></span>
+  </header>
+  <main>
+    <section id="login">
+      <form id="loginForm" class="card">
+        <p class="hint">电脑上先看字和图片。密钥从手机的「换机二维码」迁过来，聊天内容仍然只有你们两人解得开。</p>
+        <label>用户名</label>
+        <input id="name" autocomplete="username" required>
+        <label>密码</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <div class="rowbtns"><button type="submit">登录</button></div>
+        <p class="hint">只登录、不带密钥的话，加密的消息会显示成一把锁，也不能发。下面用手机扫码把密钥带过来。</p>
+        <label>换机二维码</label>
+        <div class="rowbtns"><button type="button" id="scanBtn" class="ghost">打开摄像头扫码</button></div>
+        <video id="cam" hidden playsinline></video>
+        <label>或把二维码里的内容贴在这里</label>
+        <textarea id="qrtext" rows="3" placeholder="lochatter1:…"></textarea>
+        <label>手机上显示的 6 位数字</label>
+        <input id="pin" inputmode="numeric" maxlength="6" placeholder="000000">
+        <div class="rowbtns"><button type="button" id="importBtn">导入密钥</button></div>
+        <p id="loginErr" class="err"></p>
+      </form>
+    </section>
+    <section id="chat" hidden>
+      <p id="status" class="hint">连接中…</p>
+      <div class="rowbtns"><button id="pushBtn" type="button" class="ghost">离线通知</button></div>
+      <form id="pushBox" class="card" hidden style="margin:8px 0">
+        <p class="hint">对方没连上时，把消息文字推到这个账号的手机。图片只发一句提示。间隔是两条推送最少隔开的秒数，0 表示每条都推。</p>
+        <label>渠道</label>
+        <select id="pushProvider" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font:inherit">
+          <option value="off">关闭</option>
+          <option value="serverchan">Server酱</option>
+          <option value="meow">MeoW</option>
+        </select>
+        <label id="pushSecretLabel">SendKey 或昵称</label>
+        <input id="pushSecret" autocomplete="off">
+        <label>怎么写</label>
+        <select id="pushStyle" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font:inherit">
+          <option value="hint">只说有消息（lochatter 小明向您发送了消息）</option>
+          <option value="text" selected>带上原文（lochatter 小明向您发送了晚饭好了）</option>
+          <option value="count">只报条数（lochatter 小明向您发送了 3 条消息）</option>
+        </select>
+        <label>最少间隔（秒）</label>
+        <input id="pushEvery" inputmode="numeric" value="60">
+        <div class="rowbtns"><button type="submit">保存</button></div>
+        <p id="pushErr" class="err"></p>
+      </form>
+      <div id="log"></div>
+      <div class="composer">
+        <textarea id="composer" rows="2" placeholder="发消息"></textarea>
+        <label class="ghost" style="padding:8px 12px;border-radius:6px;background:#f2f2f2;cursor:pointer">图片<input id="file" type="file" accept="image/*" hidden></label>
+        <button id="sendBtn" type="button">发送</button>
+        <button id="logout" type="button" class="ghost">退出</button>
+      </div>
+    </section>
+  </main>
+  <script src="e2e.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
