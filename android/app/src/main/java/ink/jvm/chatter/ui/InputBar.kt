@@ -130,6 +130,8 @@ internal fun InputBar(
     /** Sticker panel toggle; null hides the button. */
     onSticker: (() -> Unit)? = null,
     stickerOpen: Boolean = false,
+    /** Under the composer and above the keyboard inset. The sticker browser goes here so its search field stays on screen. */
+    below: (@Composable () -> Unit)? = null,
     /** "/" command menu (assistant page). */
     onSlash: (() -> Unit)? = null,
     /** Dictation (on-device SenseVoice, or the cloud address from settings). */
@@ -170,12 +172,13 @@ internal fun InputBar(
     var voiceText by remember { mutableStateOf<String?>(null) }
     var transcribing by remember { mutableStateOf(false) }
 
-    // Remember the keyboard height for the panels; a visible keyboard closes the panels.
+    // Remember the keyboard height for the 「+」 panel. The message field closes the sticker panel on focus;
+    // the sticker search field is allowed to open the keyboard without dismissing the panel.
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navBottom = WindowInsets.navigationBars.getBottom(density)
     LaunchedEffect(imeBottom) {
         val h = imeBottom - navBottom
-        if (h > 200) { PanelHeight.px = h; plusOpen = false; if (stickerOpen) onSticker?.invoke() }
+        if (h > 200) { PanelHeight.px = h; plusOpen = false }
     }
     LaunchedEffect(recording) {
         while (recording) {
@@ -212,8 +215,9 @@ internal fun InputBar(
         if (onSendText != null) onSendText(text) else { onValueChange(text); onSend() }
     }
 
+    Column(Modifier.navigationBarsPadding().imePadding()) {
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
-        Column(Modifier.navigationBarsPadding().imePadding()) {
+        Column {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
             banner?.invoke()
             if (editing != null && !recording) {
@@ -429,6 +433,8 @@ internal fun InputBar(
                 }
             }
         }
+    }
+        below?.invoke()
     }
 }
 

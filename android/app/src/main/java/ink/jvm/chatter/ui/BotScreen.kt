@@ -392,16 +392,18 @@ fun BotScreen(repo: ChatRepository, onBack: () -> Unit, targetId: String? = null
                             if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) dictating = true
                             else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         },
+                        below = {
+                            if (stickerPanel) {
+                                StickerPanel(
+                                    catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
+                                    onPick = { ref -> repo.sendSticker(ref, toBot = true, replyTo = replyTo?.id); replyTo = null },
+                                    onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
+                                    onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
+                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+                                )
+                            }
+                        },
                     )
-                    if (stickerPanel) {
-                        StickerPanel(
-                            catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
-                            onPick = { ref -> repo.sendSticker(ref, toBot = true, replyTo = replyTo?.id); replyTo = null },
-                            onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
-                            onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
-                            modifier = Modifier.background(MaterialTheme.colorScheme.surface),
-                        )
-                    }
                 }
             },
         ) { pad ->

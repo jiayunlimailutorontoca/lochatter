@@ -36,3 +36,5 @@
 已安装客户端继续使用本地保存的地址，升级不修改该值。`deploy/android-build.sh` 在服务器上构建前，由 `CHATTER_DOMAIN` 导出 `CHATTER_SERVER_URL`。
 
 Android `versionCode` 为 36，`versionName` 为 `2.2.0`。服务端 `Version` 为 `2.2.0`。`GET /healthz` 的 `version` 返回该版本号。
+
+2.2.1 仅修订 Android 客户端，不新增帧或字段，服务端版本不变。表情面板在搜索框取得焦点、输入法弹出后保持打开，并排列在输入法上方。该客户端 `versionCode` 为 37，`versionName` 为 `2.2.1`。

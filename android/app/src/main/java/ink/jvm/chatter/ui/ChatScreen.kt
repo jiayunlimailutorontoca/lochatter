@@ -552,8 +552,7 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
             }
         },
         bottomBar = {
-            if (!searching && selecting == null) Column {
-                InputBar(
+            if (!searching && selecting == null) InputBar(
                 value = input,
                 onValueChange = { input = it; repo.sendTyping() },
                 onSend = {
@@ -604,17 +603,18 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                         TextButton(onClick = { repo.cancelScheduled(s.id) }) { Text("取消") }
                     }
                 }) else null,
-                )
-                if (stickerPanel) {
-                    StickerPanel(
-                        catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
-                        onPick = { ref -> repo.sendSticker(ref, askBot, replyTo?.id); replyTo = null },
-                        onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
-                        onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surface),
-                    )
-                }
-            }
+                below = {
+                    if (stickerPanel) {
+                        StickerPanel(
+                            catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
+                            onPick = { ref -> repo.sendSticker(ref, askBot, replyTo?.id); replyTo = null },
+                            onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
+                            onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
+                            modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+                        )
+                    }
+                },
+            )
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad).consumeWindowInsets(pad)) {

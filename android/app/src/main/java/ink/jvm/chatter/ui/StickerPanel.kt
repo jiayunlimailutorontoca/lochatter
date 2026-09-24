@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,12 +51,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -90,9 +98,11 @@ fun StickerPanel(
     val recents by catalog.recent.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
 
     var query by remember { mutableStateOf("") }
     var debounced by remember { mutableStateOf("") }
+    var searchFocused by remember { mutableStateOf(false) }
     var tab by remember { mutableIntStateOf(TAB_RECENT) }
     LaunchedEffect(Unit) { catalog.ensureLoaded() }
     LaunchedEffect(query) {
@@ -108,48 +118,58 @@ fun StickerPanel(
     val searching = debounced.isNotEmpty()
     val results = remember(debounced, items) { if (searching) catalog.search(debounced) else emptyList() }
     val pick: (StickerRef) -> Unit = { ref ->
+        focus.clearFocus(true)
         keyboard?.hide()
         catalog.touch(ref)
         onPick(ref)
     }
+    val expandedSearch = searchFocused || query.isNotEmpty()
+    val tabState = rememberLazyListState()
+    val titles = remember(categories) { listOf("最近", "收藏") + categories.map { it.title } }
 
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth().height(300.dp)) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = modifier.fillMaxWidth().height(stickerPanelHeight())) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                SearchField(query, { query = it }, Modifier.width(140.dp))
-                Spacer(Modifier.width(4.dp))
-                val tabState = rememberLazyListState()
-                val titles = remember(categories) { listOf("最近", "收藏") + categories.map { it.title } }
-                LazyRow(state = tabState, modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
-                    itemsIndexed(titles) { i, title ->
-                        val on = i == tab && !searching
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .clickable {
-                                    tab = i
-                                    query = ""
-                                    scope.launch { tabState.animateScrollToItem(i) }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
+                SearchField(
+                    query,
+                    { query = it },
+                    if (expandedSearch) Modifier.weight(1f) else Modifier.width(140.dp),
+                    onFocus = { searchFocused = it },
+                )
+                if (!expandedSearch) {
+                    Spacer(Modifier.width(4.dp))
+                    LazyRow(state = tabState, modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        itemsIndexed(titles) { i, title ->
+                            val on = i == tab && !searching
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (on) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .clickable {
+                                        tab = i
+                                        query = ""
+                                        scope.launch { tabState.animateScrollToItem(i) }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            )
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(6.dp))
             Box(Modifier.fillMaxSize()) {
                 when {
-                    searching -> if (results.isEmpty()) {
-                        if (loading) Loading() else Empty("没有找到")
-                    } else {
-                        Grid(refs = results.map { it.ref() }, serverUrl = serverUrl, onPick = pick)
+                    searching -> when {
+                        results.isNotEmpty() -> Grid(refs = results.map { it.ref() }, serverUrl = serverUrl, onPick = pick)
+                        loading -> Loading()
+                        error != null && items.isEmpty() -> Retry { scope.launch { catalog.ensureLoaded(force = true) } }
+                        else -> Empty("没有找到")
                     }
                     tab == TAB_RECENT -> if (recents.isEmpty()) Empty("还没有发过表情") else Grid(refs = recents, serverUrl = serverUrl, onPick = pick)
                     tab == TAB_FAVORITES -> Grid(refs = favorites, serverUrl = serverUrl, onPick = pick, leadingAdd = onAddCustom, onLongPress = onRemoveFavorite)
@@ -166,8 +186,21 @@ fun StickerPanel(
     }
 }
 
+/** Full height while browsing. Shorter while the keyboard is up, so the search field is not pushed off the top. */
 @Composable
-private fun SearchField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun stickerPanelHeight(): Dp {
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime.getBottom(density)
+    val nav = WindowInsets.navigationBars.getBottom(density)
+    if (ime - nav <= 200) return 300.dp
+    val keyboardDp = with(density) { ime.toDp() }
+    val navDp = with(density) { nav.toDp() }
+    val room = LocalConfiguration.current.screenHeightDp.dp - keyboardDp - navDp - 200.dp
+    return room.coerceIn(168.dp, 300.dp)
+}
+
+@Composable
+private fun SearchField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit = {}) {
     val keyboard = LocalSoftwareKeyboardController.current
     Row(
         modifier
@@ -187,7 +220,7 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit, modifier
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) },
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (value.isEmpty()) Text("搜表情", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
