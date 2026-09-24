@@ -442,6 +442,24 @@ class ChatRepository(internal val app: Application, val prefs: Prefs, internal v
 
     // ---- QR migration to a new phone ----
 
+    /**
+     * Phone confirmed a webpage QR. Issues a separate web token (the phone's own token stays put),
+     * seals the account and key ring to the public key printed in the QR, and uploads that box.
+     * The browser keeps the result in memory only.
+     */
+    suspend fun approveWebLogin(ticketId: String, webPub: String) = withContext(Dispatchers.IO) {
+        val token = api.issueWebToken()
+        val payload = ProtoJson.encodeToString(
+            MigrationPayload.serializer(),
+            MigrationPayload(
+                server = prefs.serverUrl.trimEnd('/'), token = token, userId = me, userName = prefs.userName,
+                peerId = peerId, peerName = prefs.peerName, botName = prefs.botName,
+                keyRing = keys.ring?.toJson() ?: prefs.keyRing, e2ePriv = prefs.e2ePriv, e2ePub = prefs.e2ePub, peerPub = prefs.peerPub,
+            ),
+        )
+        api.approveWebTicket(ticketId, E2E.sealWebLogin(webPub, ticketId, payload))
+    }
+
     /** Everything the new phone needs, as JSON (the dialog encrypts it with the PIN). */
     fun migrationPayload(): String = ProtoJson.encodeToString(
         MigrationPayload.serializer(),

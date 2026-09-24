@@ -27,8 +27,10 @@
     img.shot { padding: 4px; max-width: 240px; max-height: 240px; object-fit: contain; background: #fff; }
     .composer { display: flex; gap: 8px; align-items: flex-end; }
     .composer textarea { flex: 1; min-height: 44px; resize: vertical; }
-    #cam { width: 100%; max-height: 240px; background: #000; margin-top: 8px; }
     .hint { color: #666; font-size: 13px; }
+    .qrbox { text-align: center; }
+    #qr { width: 260px; height: 260px; margin: 16px auto; background: #fff; }
+    #qr svg { width: 100%; height: 100%; display: block; }
   </style>
 </head>
 <body>
@@ -38,24 +40,14 @@
   </header>
   <main>
     <section id="login">
-      <form id="loginForm" class="card">
-        <p class="hint">电脑上先看字和图片。密钥从手机的「换机二维码」迁过来，聊天内容仍然只有你们两人解得开。</p>
-        <label>用户名</label>
-        <input id="name" autocomplete="username" required>
-        <label>密码</label>
-        <input id="password" type="password" autocomplete="current-password" required>
-        <div class="rowbtns"><button type="submit">登录</button></div>
-        <p class="hint">只登录、不带密钥的话，加密的消息会显示成一把锁，也不能发。下面用手机扫码把密钥带过来。</p>
-        <label>换机二维码</label>
-        <div class="rowbtns"><button type="button" id="scanBtn" class="ghost">打开摄像头扫码</button></div>
-        <video id="cam" hidden playsinline></video>
-        <label>或把二维码里的内容贴在这里</label>
-        <textarea id="qrtext" rows="3" placeholder="lochatter1:…"></textarea>
-        <label>手机上显示的 6 位数字</label>
-        <input id="pin" inputmode="numeric" maxlength="6" placeholder="000000">
-        <div class="rowbtns"><button type="button" id="importBtn">导入密钥</button></div>
+      <div class="card qrbox">
+        <p class="hint">用已经登录的手机扫描下面的二维码。设置里选「登录网页版」，确认之后这一页才能看字和图片。</p>
+        <p class="hint">密钥和登录状态只留在这一次打开的页面里。刷新或关掉页面之后，需要重新扫码。</p>
+        <div id="qr"></div>
+        <p id="loginStatus" class="hint">正在生成二维码…</p>
+        <div class="rowbtns" style="justify-content:center"><button type="button" id="refreshBtn" class="ghost">刷新二维码</button></div>
         <p id="loginErr" class="err"></p>
-      </form>
+      </div>
     </section>
     <section id="chat" hidden>
       <p id="status" class="hint">连接中…</p>
@@ -90,6 +82,7 @@
       </div>
     </section>
   </main>
+  <script src="qr.js"></script>
   <script src="e2e.js"></script>
   <script src="app.js"></script>
 </body>

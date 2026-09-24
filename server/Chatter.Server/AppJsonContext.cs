@@ -17,6 +17,10 @@ public sealed record HealthResponse(string Status, string Version, long UptimeSe
 [JsonSerializable(typeof(MediaInfo))]
 [JsonSerializable(typeof(LoginRequest))]
 [JsonSerializable(typeof(LoginResponse))]
+[JsonSerializable(typeof(WebTicketCreated))]
+[JsonSerializable(typeof(WebTicketView))]
+[JsonSerializable(typeof(WebBoxRequest))]
+[JsonSerializable(typeof(WebTokenResponse))]
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(KeyRequest))]
 [JsonSerializable(typeof(KeyInfo))]
@@ -58,6 +62,9 @@ public static class Json
     public static readonly JsonTypeInfo<WsMessage> WsMessage = Info<WsMessage>();
     public static readonly JsonTypeInfo<MediaInfo> MediaInfo = Info<MediaInfo>();
     public static readonly JsonTypeInfo<LoginResponse> LoginResponse = Info<LoginResponse>();
+    public static readonly JsonTypeInfo<WebTicketCreated> WebTicketCreated = Info<WebTicketCreated>();
+    public static readonly JsonTypeInfo<WebTicketView> WebTicketView = Info<WebTicketView>();
+    public static readonly JsonTypeInfo<WebTokenResponse> WebTokenResponse = Info<WebTokenResponse>();
     public static readonly JsonTypeInfo<ErrorResponse> ErrorResponse = Info<ErrorResponse>();
     public static readonly JsonTypeInfo<HealthResponse> HealthResponse = Info<HealthResponse>();
     public static readonly JsonTypeInfo<KeyInfo> KeyInfo = Info<KeyInfo>();

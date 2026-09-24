@@ -1,6 +1,7 @@
 package ink.jvm.chatter
 
 import ink.jvm.chatter.crypto.E2E
+import ink.jvm.chatter.crypto.WebLoginQr
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -186,5 +187,26 @@ class E2ETest {
         assertTrue(runCatching { E2E.decryptBytesV2(blob) { _, _, _ -> null } }.isFailure)
         assertTrue(runCatching { E2E.decryptBytesV2("nope".toByteArray()) { _, _, _ -> key } }.isFailure)
         assertArrayEquals(plain, E2E.decryptBytes(key, blob))
+    }
+
+    @Test
+    fun web_login_box_round_trip_and_ticket_binding() {
+        val web = E2E.generate()
+        val ticket = "Abcd0123efghij456789_-"
+        val plain = """{"token":"web-token","userId":1,"userName":"甲"}"""
+        val box = E2E.sealWebLogin(web.pub, ticket, plain)
+        assertEquals(plain, E2E.openWebLogin(web.priv, web.pub, ticket, box))
+        assertNull(E2E.openWebLogin(web.priv, web.pub, "zzzzzzzzzzzzzzzzzzzzzz", box))
+        val other = E2E.generate()
+        assertNull(E2E.openWebLogin(other.priv, other.pub, ticket, box))
+        val flipped = E2E.unb64(box)
+        flipped[flipped.size / 2] = (flipped[flipped.size / 2].toInt() xor 1).toByte()
+        assertNull(E2E.openWebLogin(web.priv, web.pub, ticket, E2E.b64(flipped)))
+        val code = WebLoginQr.parse(WebLoginQr.PREFIX + ticket + "." + web.pub)
+        assertEquals(ticket, code!!.id)
+        assertEquals(web.pub, code.pub)
+        assertNull(WebLoginQr.parse("lochatter1:" + ticket))
+        assertNull(WebLoginQr.parse(WebLoginQr.PREFIX + "short." + web.pub))
+        assertNull(WebLoginQr.parse(WebLoginQr.PREFIX + ticket + "x" + web.pub))
     }
 }

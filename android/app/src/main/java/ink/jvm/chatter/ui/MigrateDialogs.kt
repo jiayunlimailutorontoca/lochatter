@@ -51,8 +51,13 @@ import com.journeyapps.barcodescanner.BarcodeCallback
 import com.journeyapps.barcodescanner.BarcodeResult
 import com.journeyapps.barcodescanner.DecoratedBarcodeView
 import com.journeyapps.barcodescanner.DefaultDecoderFactory
+import android.widget.Toast
+import androidx.compose.runtime.rememberCoroutineScope
 import ink.jvm.chatter.crypto.Migration
+import ink.jvm.chatter.crypto.WebLoginQr
+import ink.jvm.chatter.data.ChatRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Old phone: a QR code with the encrypted account bundle plus the 6-digit PIN that unlocks it. */
@@ -136,6 +141,58 @@ fun MigrateScanDialog(onResult: (String) -> Unit, onClose: () -> Unit) {
             }) { Text("导入") }
         },
         dismissButton = { TextButton(onClick = onClose) { Text("取消") } },
+    )
+}
+
+/** Logged-in phone scans the QR the webpage is showing and seals a one-time web session to it. */
+@Composable
+fun WebLoginDialog(repo: ChatRepository, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    var denied by remember { mutableStateOf(false) }
+    var code by remember { mutableStateOf<WebLoginQr.Code?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> granted = ok; denied = !ok }
+    LaunchedEffect(Unit) { if (!granted) launcher.launch(Manifest.permission.CAMERA) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onClose() },
+        title = { Text(if (code == null) "登录网页版" else "确认登录网页版") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                when {
+                    code != null -> {
+                        Text("密钥只留在这一次打开的网页里。刷新或关掉页面之后，需要重新扫码。手机保持登录。", style = MaterialTheme.typography.bodyMedium)
+                        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)) }
+                    }
+                    denied -> Text("需要相机权限才能扫码", color = MaterialTheme.colorScheme.error)
+                    granted -> ScannerView(modifier = Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(12.dp))) { text ->
+                        if (code == null) WebLoginQr.parse(text)?.let { code = it }
+                    }
+                    else -> Text("正在请求相机权限…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            if (code != null) TextButton(enabled = !busy, onClick = {
+                val c = code ?: return@TextButton
+                busy = true
+                error = null
+                scope.launch {
+                    runCatching { repo.approveWebLogin(c.id, c.pub) }
+                        .onSuccess {
+                            Toast.makeText(ctx, "网页已登录", Toast.LENGTH_SHORT).show()
+                            onClose()
+                        }
+                        .onFailure {
+                            error = it.message ?: "登录失败"
+                            busy = false
+                        }
+                }
+            }) { Text(if (busy) "正在登录…" else "登录") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text("取消") } },
     )
 }
 

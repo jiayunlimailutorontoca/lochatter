@@ -109,6 +109,40 @@ object E2E {
         return hkdf(secret, salt, "$INFO_V2|$senderEpoch.$receiverEpoch".toByteArray(), 32)
     }
 
+    /**
+     * Seals [plain] for a browser that showed [recipientPubB64] in a webpage-login QR.
+     * Box is standard base64 of ephemeral SPKI (91 bytes) ‖ nonce(12) ‖ AES-GCM ciphertext.
+     * The AES key is HKDF-SHA256(ECDH(ephemeral, recipient), salt = SHA-256(ephemeralSpki ‖ recipientSpki),
+     * info = "lochatter-web-login-v1"). [aad] is the ticket id. The server only stores the box.
+     */
+    const val WEB_LOGIN_INFO = "lochatter-web-login-v1"
+    const val WEB_SPKI_LEN = 91
+
+    fun sealWebLogin(recipientPubB64: String, ticketId: String, plain: String): String {
+        val recipient = unb64(recipientPubB64)
+        require(recipient.size == WEB_SPKI_LEN) { "web public key" }
+        val eph = generate()
+        val ephSpki = unb64(eph.pub)
+        require(ephSpki.size == WEB_SPKI_LEN) { "ephemeral public key" }
+        val secret = agree(eph.priv, recipientPubB64)
+        val salt = MessageDigest.getInstance("SHA-256").digest(ephSpki + recipient)
+        val key = hkdf(secret, salt, WEB_LOGIN_INFO.toByteArray(), 32)
+        return b64(ephSpki + seal(key, plain, ticketId))
+    }
+
+    /** Inverse of [sealWebLogin]. Null when the box, the key, or the ticket id does not match. */
+    fun openWebLogin(myPrivB64: String, myPubB64: String, ticketId: String, boxB64: String): String? = runCatching {
+        val raw = unb64(boxB64)
+        if (raw.size < WEB_SPKI_LEN + NONCE_BYTES + TAG_BYTES) return null
+        val ephSpki = raw.copyOfRange(0, WEB_SPKI_LEN)
+        val body = raw.copyOfRange(WEB_SPKI_LEN, raw.size)
+        val mySpki = unb64(myPubB64)
+        val secret = agree(myPrivB64, b64(ephSpki))
+        val salt = MessageDigest.getInstance("SHA-256").digest(ephSpki + mySpki)
+        val key = hkdf(secret, salt, WEB_LOGIN_INFO.toByteArray(), 32)
+        open(key, body, ticketId)
+    }.getOrNull()
+
     /** 12 groups of 5 digits; identical on both phones when nobody tampered with the keys. */
     fun safetyNumber(pubA: String, pubB: String): String {
         val d = MessageDigest.getInstance("SHA-512").digest(sortedPubs(pubA, pubB))

@@ -134,6 +134,7 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
         "import" -> KeyImportDialog(repo, onClose = { dialog = null })
         "password" -> PasswordDialog(repo, onClose = { dialog = null })
         "devices" -> DevicesDialog(repo, onClose = { dialog = null })
+        "web_login" -> WebLoginDialog(repo, onClose = { dialog = null })
         "ttl" -> TtlDialog(ttl, onPick = { repo.setTtl(it); dialog = null }, onClose = { dialog = null })
         "bot" -> BotNameDialog(repo, botName, onClose = { dialog = null })
         "botmode" -> BotModeDialog(botMode, onPick = { botMode = it; repo.prefs.botInMain = it; dialog = null }, onClose = { dialog = null })
@@ -187,6 +188,7 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
             Section("账号") {
                 Item("修改密码", "需要输入当前密码") { dialog = "password" }
                 Item("登录设备", "查看并踢出其他登录的手机") { dialog = "devices" }
+                Item("登录网页版", "扫电脑网页上的二维码。密钥只留在那一页，刷新后要重新扫") { dialog = "web_login" }
             }
             Section("聊天") {
                 Item("消息定时销毁", "当前：${ChatExport.ttlLabel(ttl)}，对双方都生效") { dialog = "ttl" }
@@ -610,7 +612,7 @@ private fun DevicesDialog(repo: ChatRepository, onClose: () -> Unit) {
                 l?.forEach { d ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text((d.device ?: "未知设备") + if (d.current) "（本机）" else "", style = MaterialTheme.typography.bodyLarge, fontWeight = if (d.current) FontWeight.SemiBold else FontWeight.Normal)
+                            Text((if (d.device == "web") "网页版" else d.device ?: "未知设备") + if (d.current) "（本机）" else "", style = MaterialTheme.typography.bodyLarge, fontWeight = if (d.current) FontWeight.SemiBold else FontWeight.Normal)
                             Text("登录 ${fmtTime(d.createdAt)}" + (d.lastSeen?.let { " · 最近 ${fmtTime(it)}" } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (!d.current) TextButton(onClick = {

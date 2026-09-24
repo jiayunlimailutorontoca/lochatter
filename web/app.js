@@ -1,4 +1,4 @@
-/* lochatter web prototype: text + images, keys from the phone's migration QR. */
+/* lochatter web client: text + images. The phone seals a one-time session into this page; nothing is stored. */
 const LOCKED = "🔒 无法解密的消息";
 const $ = (id) => document.getElementById(id);
 
@@ -14,23 +14,17 @@ const state = {
   ws: null,
 };
 
-function saveSession() {
-  sessionStorage.setItem("lochatter", JSON.stringify({
-    token: state.token, me: state.me, meName: state.meName, peerName: state.peerName, ring: state.ring,
-  }));
+function wipeStoredLogin() {
+  try { sessionStorage.removeItem("lochatter"); } catch { /* private mode */ }
+  try { localStorage.removeItem("lochatter"); } catch { /* private mode */ }
+  document.cookie = "chatter=; Path=/; Max-Age=0; Secure; SameSite=Strict";
 }
-function loadSession() {
-  const raw = sessionStorage.getItem("lochatter");
-  if (!raw) return;
-  try {
-    const s = JSON.parse(raw);
-    state.token = s.token || "";
-    state.me = s.me || 0;
-    state.meName = s.meName || "";
-    state.peerName = s.peerName || "";
-    state.ring = s.ring || null;
-  } catch { /* ignore a broken tab session */ }
-}
+wipeStoredLogin();
+
+let wantSocket = false;
+let loginGen = 0;
+let loginPriv = null;
+let loginSpki = null;
 
 function setCookie() {
   document.cookie = "chatter=" + state.token + "; Path=/; Secure; SameSite=Strict";
@@ -212,13 +206,23 @@ async function loadImage(id, mime) {
 }
 
 function connect() {
-  if (state.ws) state.ws.close();
+  if (state.ws) {
+    const old = state.ws;
+    state.ws = null;
+    old.onclose = null;
+    try { old.close(); } catch { /* already closing */ }
+  }
+  wantSocket = true;
   setCookie();
   const ws = new WebSocket(state.server.replace(/^http/, "ws") + "/ws");
   state.ws = ws;
   $("status").textContent = "正在连接…";
   ws.onopen = () => { $("status").textContent = "已连接"; };
-  ws.onclose = () => { $("status").textContent = "连接断了，刷新页面重连"; };
+  ws.onclose = () => {
+    if (!wantSocket || state.ws !== ws) return;
+    $("status").textContent = "连接断了，正在重连…";
+    setTimeout(() => { if (wantSocket && state.token) connect(); }, 1500);
+  };
   ws.onerror = () => { $("status").textContent = "连接失败"; };
   ws.onmessage = async (ev) => {
     let f;
@@ -276,7 +280,6 @@ async function adoptPeer(bundleText) {
     if (n > (state.ring.peer.highest || 0)) state.ring.peer.highest = n;
   }
   state.keys.clear();
-  saveSession();
 }
 
 async function sendText() {
@@ -284,7 +287,7 @@ async function sendText() {
   const text = input.value.trim();
   if (!text) return;
   const send = await currentSend();
-  if (!send) { $("status").textContent = "还没有密钥。用手机上的换机二维码扫进来。"; return; }
+  if (!send) { $("status").textContent = "这一页没有密钥。刷新后用手机重新扫码。"; return; }
   const id = crypto.randomUUID();
   const cipher = "e2e" + (send.v2
     ? "2:" + send.v2.uid + ":" + send.v2.s + "." + send.v2.r + ":" + E2E.b64enc(await E2E.seal(send.key, text, id))
@@ -309,7 +312,7 @@ async function fileToJpeg(file, maxEdge, quality) {
 
 async function sendImage(file) {
   const send = await currentSend();
-  if (!send) { $("status").textContent = "还没有密钥。用手机上的换机二维码扫进来。"; return; }
+  if (!send) { $("status").textContent = "这一页没有密钥。刷新后用手机重新扫码。"; return; }
   $("status").textContent = "正在发送图片…";
   const full = await fileToJpeg(file, 1600, 0.86);
   const thumb = await fileToJpeg(file, 360, 0.7);
@@ -328,35 +331,9 @@ async function sendImage(file) {
   $("status").textContent = "已连接";
 }
 
-async function loginPassword(ev) {
-  ev.preventDefault();
-  $("loginErr").textContent = "";
-  try {
-    const res = await fetch(state.server + "/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: $("name").value.trim(), password: $("password").value, device: "web" }),
-    });
-    if (!res.ok) throw new Error((await res.text()) || "登录失败");
-    const body = await res.json();
-    state.token = body.token;
-    state.me = body.user.id;
-    state.meName = body.user.name;
-    state.peerName = body.peer ? body.peer.name : "";
-    state.ring = null;
-    state.keys.clear();
-    saveSession();
-    showChat();
-  } catch (e) { $("loginErr").textContent = e.message || "登录失败"; }
-}
+function sleep(ms) { return new Promise((ok) => setTimeout(ok, ms)); }
 
-async function importQr(payloadText, pin) {
-  $("loginErr").textContent = "";
-  const json = await E2E.unpackMigration(payloadText, pin);
-  if (!json) { $("loginErr").textContent = "二维码或 PIN 不对"; return; }
-  let p;
-  try { p = JSON.parse(json); } catch { $("loginErr").textContent = "这不是换机码"; return; }
-  if (!p.token || !p.userId) { $("loginErr").textContent = "换机码里没有账号"; return; }
+function applySealedAccount(p) {
   state.token = p.token;
   state.me = p.userId;
   state.meName = p.userName || "";
@@ -368,8 +345,85 @@ async function importQr(payloadText, pin) {
   if (state.ring && !state.ring.peerIdentityPub && p.peerPub) state.ring.peerIdentityPub = p.peerPub;
   if (state.ring && !state.ring.myUserId) state.ring.myUserId = p.userId;
   state.keys.clear();
-  saveSession();
+}
+
+async function acceptBox(gen, id, box) {
+  $("loginStatus").textContent = "手机已确认，正在进入…";
+  const json = await E2E.openWebLogin(loginPriv, loginSpki, id, box);
+  if (gen !== loginGen) return;
+  loginPriv = null;
+  loginSpki = null;
+  let p = null;
+  try { p = json ? JSON.parse(json) : null; } catch { p = null; }
+  if (!p || !p.token || !p.userId) {
+    $("loginStatus").textContent = "登录失败";
+    $("loginErr").textContent = "解不开手机送来的内容。点刷新后再扫一次。";
+    return;
+  }
+  applySealedAccount(p);
   showChat();
+}
+
+async function pollTicket(gen, id, expiresAt) {
+  while (gen === loginGen) {
+    if (expiresAt && Date.now() > expiresAt) {
+      $("loginStatus").textContent = "二维码已过期，正在更换…";
+      startLogin();
+      return;
+    }
+    try {
+      const res = await fetch(state.server + "/auth/web-ticket/" + encodeURIComponent(id));
+      if (gen !== loginGen) return;
+      if (!res.ok) throw new Error((await res.text()) || "查询失败");
+      const body = await res.json();
+      if (body.status === "pending") {
+        $("loginStatus").textContent = "等待手机确认";
+        $("loginErr").textContent = "";
+      } else if (body.status === "ready" && body.box) {
+        await acceptBox(gen, id, body.box);
+        return;
+      } else {
+        $("loginStatus").textContent = "二维码已失效，正在更换…";
+        startLogin();
+        return;
+      }
+    } catch (e) {
+      if (gen !== loginGen) return;
+      $("loginErr").textContent = e.message || "查询失败";
+    }
+    await sleep(1000);
+  }
+}
+
+async function startLogin() {
+  const gen = ++loginGen;
+  loginPriv = null;
+  loginSpki = null;
+  $("loginErr").textContent = "";
+  $("loginStatus").textContent = "正在生成二维码…";
+  $("qr").textContent = "";
+  try {
+    const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+    if (gen !== loginGen) return;
+    const spki = new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey));
+    if (spki.length !== 91) throw new Error("公钥长度不对");
+    const res = await fetch(state.server + "/auth/web-ticket", { method: "POST" });
+    if (gen !== loginGen) return;
+    if (res.status === 429) throw new Error("刷新太频繁，等一会儿再试");
+    if (!res.ok) throw new Error((await res.text()) || "取二维码失败");
+    const body = await res.json();
+    if (!body.id || String(body.id).length !== 22) throw new Error("票据格式不对");
+    loginPriv = pair.privateKey;
+    loginSpki = spki;
+    const text = "lochatter-web:" + body.id + "." + E2E.b64enc(spki);
+    $("qr").innerHTML = QR.toSvg(text);
+    $("loginStatus").textContent = "请用已登录的手机扫描";
+    pollTicket(gen, body.id, body.expiresAt);
+  } catch (e) {
+    if (gen !== loginGen) return;
+    $("loginStatus").textContent = "二维码没有生成";
+    $("loginErr").textContent = e.message || "失败";
+  }
 }
 
 function showChat() {
@@ -379,26 +433,24 @@ function showChat() {
   connect();
 }
 
-async function scanLoop(video, detector) {
-  if (video.dataset.stop) return;
-  try {
-    const codes = await detector.detect(video);
-    if (codes && codes[0] && codes[0].rawValue && codes[0].rawValue.startsWith("lochatter1:")) {
-      $("qrtext").value = codes[0].rawValue;
-      $("loginErr").textContent = "扫到了。填手机上的 6 位数字，再点导入。";
-      return;
-    }
-  } catch { /* frame not ready */ }
-  requestAnimationFrame(() => scanLoop(video, detector));
-}
-
 function bind() {
-  $("loginForm").onsubmit = loginPassword;
-  $("importBtn").onclick = () => importQr($("qrtext").value, $("pin").value);
+  $("refreshBtn").onclick = () => startLogin();
   $("sendBtn").onclick = sendText;
   $("composer").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendText(); } };
   $("file").onchange = () => { const f = $("file").files[0]; $("file").value = ""; if (f) sendImage(f).catch((e) => { $("status").textContent = e.message || "图片发送失败"; }); };
-  $("logout").onclick = () => { clearCookie(); sessionStorage.removeItem("lochatter"); if (state.ws) state.ws.close(); location.reload(); };
+  $("logout").onclick = () => {
+    wantSocket = false;
+    loginGen++;
+    loginPriv = null;
+    loginSpki = null;
+    state.token = "";
+    state.ring = null;
+    state.keys.clear();
+    clearCookie();
+    wipeStoredLogin();
+    if (state.ws) state.ws.close();
+    location.reload();
+  };
   $("pushBtn").onclick = async () => {
     const box = $("pushBox");
     box.hidden = !box.hidden;
@@ -430,18 +482,7 @@ function bind() {
       $("pushErr").textContent = "已保存";
     } catch (e) { $("pushErr").textContent = e.message || "保存失败"; }
   };
-  $("scanBtn").onclick = async () => {
-    if (!("BarcodeDetector" in window)) { $("loginErr").textContent = "这个浏览器不能扫码。把换机码内容贴到下面的框里。"; return; }
-    const video = $("cam");
-    video.hidden = false;
-    video.dataset.stop = "";
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-    video.srcObject = stream;
-    await video.play();
-    scanLoop(video, new BarcodeDetector({ formats: ["qr_code"] }));
-  };
 }
 
-loadSession();
 bind();
-if (state.token && state.me) showChat();
+startLogin();

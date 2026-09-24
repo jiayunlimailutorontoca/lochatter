@@ -232,8 +232,28 @@ const E2E = (() => {
     } catch { return null; }
   }
 
+  /**
+   * Opens a webpage-login box sealed by the phone.
+   * privKey is the in-memory CryptoKey; mySpki is the 91-byte SPKI that was printed in the QR.
+   */
+  async function openWebLogin(privKey, mySpki, ticketId, boxB64) {
+    try {
+      const raw = b64dec(boxB64);
+      if (raw.length < 91 + 12 + 16) return null;
+      const eph = raw.slice(0, 91);
+      const body = raw.slice(91);
+      const ephKey = await crypto.subtle.importKey("spki", eph, { name: "ECDH", namedCurve: "P-256" }, false, []);
+      const secret = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: ephKey }, privKey, 256));
+      const salt = await sha256(concat(eph, mySpki));
+      const key = await hkdf(secret, salt, enc.encode("lochatter-web-login-v1"));
+      return await open(key, body, ticketId);
+    } catch {
+      return null;
+    }
+  }
+
   return {
     b64enc, b64dec, b64url, concat, isEncrypted, header, derive, seal, open, encryptBytes, decryptBytes,
-    verifyEpoch, unpackMigration,
+    verifyEpoch, unpackMigration, openWebLogin,
   };
 })();

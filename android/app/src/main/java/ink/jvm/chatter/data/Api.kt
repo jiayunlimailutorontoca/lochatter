@@ -78,6 +78,19 @@ class Api(
         Unit
     }
 
+    /** A device token labeled "web". The phone seals it for the browser; it is not kept on this phone. */
+    suspend fun issueWebToken(): String = withContext(Dispatchers.IO) {
+        val text = execute(client.newCall(Request.Builder().url("${prefs.serverUrl}/auth/web-token").post("{}".toRequestBody(JSON)).build()))
+        ProtoJson.decodeFromString(WebTokenResponse.serializer(), text).token
+    }
+
+    /** Hands the encrypted login box to a pending webpage ticket. */
+    suspend fun approveWebTicket(id: String, box: String) = withContext(Dispatchers.IO) {
+        val payload = ProtoJson.encodeToString(WebBoxRequest.serializer(), WebBoxRequest(box))
+        execute(client.newCall(Request.Builder().url("${prefs.serverUrl}/auth/web-ticket/$id").post(payload.toRequestBody(JSON)).build()))
+        Unit
+    }
+
     // ---- in-chat assistant ----
 
     suspend fun botInfo(): BotInfo = withContext(Dispatchers.IO) {

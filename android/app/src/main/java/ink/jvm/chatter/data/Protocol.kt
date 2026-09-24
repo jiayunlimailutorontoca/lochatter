@@ -255,6 +255,12 @@ data class TurnCreds(val urls: List<String>, val username: String, val credentia
 data class LoginRequest(val name: String, val password: String, val device: String? = null)
 
 @Serializable
+data class WebTokenResponse(val token: String)
+
+@Serializable
+data class WebBoxRequest(val box: String)
+
+@Serializable
 data class LoginResponse(val token: String, val user: UserInfo, val peer: UserInfo? = null)
 
 @Serializable

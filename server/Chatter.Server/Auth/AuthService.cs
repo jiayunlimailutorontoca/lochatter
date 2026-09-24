@@ -37,6 +37,19 @@ public sealed class AuthService(UserRepo users, TokenRepo tokens, ILogger<AuthSe
         return new LoginResponse(token, new UserInfo(user.Id, user.Name), users.PeerOf(user.Id));
     }
 
+    /// <summary>
+    /// A fresh device token labeled "web", replacing any previous web token of this user.
+    /// The raw token is returned once so the phone can seal it for the browser. Revoked hashes must be kicked by the caller.
+    /// </summary>
+    public (string Token, List<string> Revoked) IssueWebToken(long userId)
+    {
+        var revoked = tokens.RevokeDevice(userId, "web");
+        foreach (var hash in revoked) Evict(hash);
+        var token = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+        tokens.Insert(userId, HashToken(token), "web", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        return (token, revoked);
+    }
+
     /// <summary>Resolves the bearer token of a request; null when missing or invalid.
     /// Browsers cannot set Authorization on a WebSocket, so the same token is also accepted as cookie "chatter" (1.9 web).</summary>
     public UserInfo? Authenticate(HttpContext ctx)

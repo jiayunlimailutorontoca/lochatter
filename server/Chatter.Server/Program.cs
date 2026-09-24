@@ -38,6 +38,7 @@ builder.Services.AddSingleton<PushRepo>();
 builder.Services.AddSingleton<PushService>();
 builder.Services.AddSingleton<SharedRepo>();
 builder.Services.AddSingleton<AuthService>();
+builder.Services.AddSingleton<WebTickets>();
 builder.Services.AddSingleton<TurnService>();
 builder.Services.AddSingleton<Hub>();
 
@@ -65,6 +66,39 @@ app.MapPost("/auth/login", (LoginRequest req, HttpContext ctx, AuthService auth)
     if (string.IsNullOrWhiteSpace(req.Name) || string.IsNullOrEmpty(req.Password)) return Http.Error(400, "name and password required");
     var res = auth.Login(req.Name, req.Password, req.Device?[..Math.Min(req.Device.Length, 64)], ip);
     return res is null ? Http.Error(401, "bad credentials") : Results.Json(res, Json.LoginResponse);
+});
+
+app.MapPost("/auth/web-ticket", (HttpContext ctx, WebTickets tickets) =>
+{
+    if (!tickets.AllowCreate(Http.ClientIp(ctx))) return Http.Error(429, "too many tickets");
+    var (id, exp) = tickets.Create();
+    return Results.Json(new WebTicketCreated(id, exp), Json.WebTicketCreated);
+});
+
+app.MapGet("/auth/web-ticket/{id}", (string id, WebTickets tickets) =>
+{
+    if (!IsTicketId(id)) return Http.Error(400, "bad ticket");
+    var (status, box) = tickets.Poll(id);
+    return Results.Json(new WebTicketView(status, box), Json.WebTicketView);
+});
+
+app.MapPost("/auth/web-ticket/{id}", (string id, WebBoxRequest req, HttpContext ctx, AuthService auth, WebTickets tickets) =>
+{
+    if (auth.Authenticate(ctx) is null) return Http.Error(401, "unauthorized");
+    if (!IsTicketId(id)) return Http.Error(400, "bad ticket");
+    var box = req.Box?.Trim() ?? "";
+    if (box.Length is < 32 or > WebTickets.MaxBoxChars || !IsBox(box)) return Http.Error(400, "bad box");
+    return tickets.Approve(id, box) ? Results.NoContent() : Http.Error(409, "ticket is not pending");
+});
+
+app.MapPost("/auth/web-token", (HttpContext ctx, AuthService auth, Hub hub) =>
+{
+    var user = auth.Authenticate(ctx);
+    if (user is null) return Http.Error(401, "unauthorized");
+    var (token, revoked) = auth.IssueWebToken(user.Id);
+    foreach (var hash in revoked) hub.KickToken(hash);
+    app.Logger.LogInformation("web token issued for {User} (replaced {N})", user.Name, revoked.Count);
+    return Results.Json(new WebTokenResponse(token), Json.WebTokenResponse);
 });
 
 app.MapGet("/ws", async (HttpContext ctx, Hub hub, AuthService auth) =>
@@ -287,4 +321,19 @@ static bool OwnsProfileKey(string key, long userId)
 {
     if (!key.StartsWith("av-", StringComparison.Ordinal) && !key.StartsWith("sg-", StringComparison.Ordinal)) return true;
     return long.TryParse(key.AsSpan(3), out var id) && id == userId && id > 0;
+}
+
+static bool IsTicketId(string id)
+{
+    if (id.Length != 22) return false;
+    foreach (var ch in id)
+        if (!(char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_')) return false;
+    return true;
+}
+
+static bool IsBox(string box)
+{
+    foreach (var ch in box)
+        if (!(char.IsAsciiLetterOrDigit(ch) || ch is '+' or '/' or '=')) return false;
+    return true;
 }

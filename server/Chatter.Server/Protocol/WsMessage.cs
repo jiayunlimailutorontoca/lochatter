@@ -165,6 +165,18 @@ public sealed record LoginRequest(string Name, string Password, string? Device =
 
 public sealed record LoginResponse(string Token, UserInfo User, UserInfo? Peer);
 
+/// <summary>POST /auth/web-ticket. The id is what the phone scans; the browser keeps the matching private key.</summary>
+public sealed record WebTicketCreated(string Id, long ExpiresAt);
+
+/// <summary>GET /auth/web-ticket/{id}. [Box] is set only for status "ready", and only on that one response.</summary>
+public sealed record WebTicketView(string Status, string? Box);
+
+/// <summary>POST /auth/web-ticket/{id}. Opaque ciphertext produced by the phone.</summary>
+public sealed record WebBoxRequest(string? Box);
+
+/// <summary>POST /auth/web-token. A device token the phone seals into the box; it is not a password login.</summary>
+public sealed record WebTokenResponse(string Token);
+
 public sealed record ErrorResponse(string Error);
 
 /// <summary>Error with a machine-readable code (1.6 helpers: stt_unavailable, geo_unavailable, geo_upstream, rate_limited, too_large).</summary>

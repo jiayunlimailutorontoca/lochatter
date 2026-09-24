@@ -2,13 +2,15 @@
 
 lochatter 是一套供两名用户使用的即时通讯系统，包含 Android 客户端、.NET 服务端、可选 Web 客户端，以及可选的 Hermes 助手插件。文本、图像、语音消息与文件默认在客户端完成端到端加密。服务端负责投递密文、保存密文媒体，以及转发通话信令，不解析消息正文。
 
-当前版本：Android 2.2.1（`versionCode` 37），服务端 2.2.0。Android 包名 `ink.jvm.chatter`，安装包仅包含 `arm64-v8a`。许可证 [MIT](LICENSE)，版权所有 2026 laosaonan2。
+当前版本：Android 2.2.2（`versionCode` 38），服务端 2.2.2。Android 包名 `ink.jvm.chatter`，安装包仅包含 `arm64-v8a`。许可证 [MIT](LICENSE)，版权所有 2026 laosaonan2。
 
 [English](README.en.md)
 
 2.2.0 不增加协议帧，也不增加消息类型。本版本规定运行参数的来源：服务进程从环境变量读取数据目录与可选能力；Android 构建把默认服务器地址写入安装包。域名、证书、密钥与推送凭据存放在被忽略的配置文件中，不进入版本库。
 
 2.2.1 不修改协议与服务端。Android 表情面板在搜索框取得焦点、输入法弹出后保持打开，面板位于输入法上方。
+
+2.2.2 不增加消息 `kind`，也不增加 WebSocket 帧。数据库 schema 仍为 9。网页改为手机扫码确认登录；令牌与密钥环只留在该次页面的内存中。Android `versionCode` 为 38。服务端 `Version` 为 `2.2.2`。
 
 ## 1. 客户端与账号
 
@@ -54,7 +56,7 @@ lochatter 是一套供两名用户使用的即时通讯系统，包含 Android �
 
 与助手的语音通话要求插件加载 aiortc，并配置 OpenAI 兼容的模型服务，分别用于转写与合成。模型标识必须是该服务实际提供的标识。字幕使用帧 `call.caption`。
 
-部署完成后，Web 客户端位于 `https://<域名>/web/`。它使用同一协议，仅实现文本与图像；其他 `kind` 显示为一行摘要。浏览器无法在 WebSocket 握手中设置 `Authorization` 头，因此 `GET /ws` 接受名为 `chatter` 的 cookie。其余接口仍使用 Bearer 令牌。令牌不得放入 URL，否则会进入 nginx 访问日志。
+部署完成后，Web 客户端位于 `https://<域名>/web/`。页面显示二维码，已登录的手机在设置中选择「登录网页版」并确认。确认后的设备令牌与密钥环只留在该次页面的内存中，不写入浏览器存储。刷新或关闭页面后须重新扫码。页面只实现文本与图像；其他 `kind` 显示为一行摘要。浏览器无法在 WebSocket 握手中设置 `Authorization` 头，因此当次页面把令牌放进名为 `chatter` 的会话 cookie，并在下次加载时清除。其余接口仍使用 Bearer 令牌。令牌不得放入 URL，否则会进入 nginx 访问日志。手机须安装 2.2.2 及以上，设置中才有「登录网页版」。
 
 ## 6. 部署结构
 
@@ -150,7 +152,7 @@ curl -s http://127.0.0.1:5088/healthz
 systemctl status chatter
 ```
 
-`/healthz` 返回的 `version` 应为 `2.2.0`。nginx 配置无效时，脚本输出 `nginx -t` 的错误且不执行 reload。防火墙至少放行 TCP 443。通话另需放行 UDP/TCP 3478 与 UDP 49160–49200。
+`/healthz` 返回的 `version` 应为 `2.2.2`。nginx 配置无效时，脚本输出 `nginx -t` 的错误且不执行 reload。防火墙至少放行 TCP 443。通话另需放行 UDP/TCP 3478 与 UDP 49160–49200。
 
 ```bash
 bash /opt/chatter/src/deploy/turn-setup.sh

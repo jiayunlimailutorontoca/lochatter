@@ -246,6 +246,20 @@ public sealed class TokenRepo(Db db)
         cmd.Parameters.AddWithValue("$u", userId);
         return cmd.ExecuteNonQuery();
     }
+
+    /// <summary>Deletes every token whose device label is exactly [device]; returns the removed hashes.</summary>
+    public List<string> RevokeDevice(long userId, string device)
+    {
+        using var c = db.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "DELETE FROM tokens WHERE user_id = $u AND device = $d RETURNING token_hash";
+        cmd.Parameters.AddWithValue("$u", userId);
+        cmd.Parameters.AddWithValue("$d", device);
+        using var r = cmd.ExecuteReader();
+        var list = new List<string>();
+        while (r.Read()) list.Add(r.GetString(0));
+        return list;
+    }
 }
 
 public sealed class MessageRepo(Db db)
