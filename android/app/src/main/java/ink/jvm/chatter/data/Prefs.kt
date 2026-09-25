@@ -213,6 +213,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("callSummary", false)
         set(v) { sp.edit().putBoolean("callSummary", v).apply() }
 
+    /** Selected on-device Qwen file. Default is the 4B class, the closest loadable size to 3B. */
+    var summaryModel: String
+        get() = sp.getString("summaryModel", "qwen35-4b") ?: "qwen35-4b"
+        set(v) { sp.edit().putString("summaryModel", v).apply() }
+
     /** Fetch OpenGraph cards for links in text messages (the phone contacts the site). */
     var linkPreview: Boolean
         get() = sp.getBoolean("linkPreview", true)

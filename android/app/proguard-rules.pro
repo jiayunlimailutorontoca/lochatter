@@ -35,10 +35,11 @@
 # On-device SenseVoice. JNI looks classes up by name.
 -keep class com.k2fsa.sherpa.onnx.** { *; }
 -dontwarn com.k2fsa.sherpa.onnx.**
-# On-device Gemma via MediaPipe. JNI looks classes up by name.
--keep class com.google.mediapipe.** { *; }
--dontwarn com.google.mediapipe.**
--dontwarn com.google.protobuf.**
+# On-device Qwen via LiteRT-LM. JNI looks classes up by name.
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.ai.edge.litertlm.**
+-dontwarn com.google.gson.**
 # security-crypto pulls Tink, which references annotations that are not on the compile classpath.
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**

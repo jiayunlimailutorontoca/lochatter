@@ -2,11 +2,16 @@ package ink.jvm.chatter.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -17,12 +22,16 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import ink.jvm.chatter.data.ChatRepository
 import ink.jvm.chatter.data.LocalMessage
 import ink.jvm.chatter.media.LocalSummary
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** On-device chat tools. Nothing here is uploaded. */
 internal sealed class AssistRequest {
@@ -41,9 +50,14 @@ internal fun ChatAssistDialog(
 ) {
     val ctx = LocalContext.current
     var token by remember { mutableIntStateOf(0) }
-    var body by remember(request) { mutableStateOf<String?>(null) }
+    var body by remember(request) { mutableStateOf("") }
     var suggestions by remember(request) { mutableStateOf<List<String>>(emptyList()) }
     var error by remember(request) { mutableStateOf<String?>(null) }
+    var running by remember(request) { mutableStateOf(false) }
+    var stopped by remember(request) { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    val work = remember(request) { mutableStateOf<Job?>(null) }
+    LaunchedEffect(body) { scroll.scrollTo(scroll.maxValue) }
     LaunchedEffect(request) {
         val req = request ?: return@LaunchedEffect
         if (!LocalSummary.ready(ctx)) {
@@ -51,26 +65,43 @@ internal fun ChatAssistDialog(
             onClose()
             return@LaunchedEffect
         }
+        work.value = coroutineContext[Job]
+        val alive = AtomicBoolean(true)
         val mine = ++token
-        val result = runCatching {
+        running = true
+        try {
             when (req) {
-                is AssistRequest.Summary -> LocalSummary.summarizeChat(ctx, recentDialog(repo, req.limit))
-                AssistRequest.Polish -> LocalSummary.polish(ctx, draft.trim())
-                AssistRequest.Suggest -> null
+                is AssistRequest.Summary -> body = LocalSummary.summarizeChat(ctx, recentDialog(repo, req.limit)) {
+                    if (alive.get() && mine == token) body = it
+                }
+                AssistRequest.Polish -> body = LocalSummary.polish(ctx, draft.trim()) {
+                    if (alive.get() && mine == token) body = it
+                }
+                AssistRequest.Suggest -> {
+                    val lines = LocalSummary.suggest(ctx, recentDialog(repo, 30)) {
+                        if (alive.get() && mine == token) body = it
+                    }
+                    if (mine == token) suggestions = lines
+                }
             }
-        }
-        val replies = if (req is AssistRequest.Suggest) runCatching { LocalSummary.suggest(ctx, recentDialog(repo, 30)) } else null
-        if (mine != token) return@LaunchedEffect
-        when (req) {
-            is AssistRequest.Suggest -> replies!!.onSuccess { suggestions = it }.onFailure { error = it.message ?: "整理失败" }
-            else -> result.onSuccess { body = it as String }.onFailure { error = it.message ?: "整理失败" }
+        } catch (e: CancellationException) {
+            stopped = true
+            if (req is AssistRequest.Suggest && suggestions.isEmpty()) suggestions = LocalSummary.replyLines(body)
+        } catch (e: Exception) {
+            error = e.message ?: "整理失败"
+        } finally {
+            alive.set(false)
+            running = false
         }
     }
     if (request == null) return
-    val running = error == null && body == null && suggestions.isEmpty()
+    fun stop() {
+        token++
+        work.value?.cancel()
+    }
     AlertDialog(
         onDismissRequest = {
-            token++
+            stop()
             onClose()
         },
         title = {
@@ -83,19 +114,31 @@ internal fun ChatAssistDialog(
             )
         },
         text = {
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
-                Text(
-                    when {
-                        error != null -> error ?: "整理失败"
-                        running -> "正在这台手机上整理，不会上传。"
-                        request is AssistRequest.Suggest -> "点一条放进输入框。"
-                        else -> body ?: ""
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(scroll)) {
+                when {
+                    error != null -> Text(error ?: "整理失败", style = MaterialTheme.typography.bodyMedium)
+                    request is AssistRequest.Suggest && suggestions.isNotEmpty() -> Text(
+                        if (stopped) "已停止。点一条放进输入框。" else "点一条放进输入框。",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    body.isNotBlank() -> Text(
+                        body + if (stopped) "\n\n已停止。" else "",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    running -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "正在加载模型，第一次会久一些。文字还在这台手机上，不会上传。",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    stopped -> Text("已停止。", style = MaterialTheme.typography.bodyMedium)
+                    else -> Text("没有整理出内容", style = MaterialTheme.typography.bodyMedium)
+                }
                 if (request is AssistRequest.Suggest && suggestions.isNotEmpty()) {
                     suggestions.forEach { line ->
-                        TextButton(onClick = { onDraft(line); token++; onClose() }, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { onDraft(line); stop(); onClose() }, modifier = Modifier.fillMaxWidth()) {
                             Text(line)
                         }
                     }
@@ -103,18 +146,20 @@ internal fun ChatAssistDialog(
             }
         },
         confirmButton = {
-            when (request) {
+            if (running) {
+                TextButton(onClick = { stop() }) { Text("停止") }
+            } else when (request) {
                 AssistRequest.Polish -> TextButton(
-                    enabled = !body.isNullOrBlank(),
-                    onClick = { onDraft(body!!.trim()); token++; onClose() },
+                    enabled = body.isNotBlank(),
+                    onClick = { onDraft(body.trim()); stop(); onClose() },
                 ) { Text("用这版") }
-                is AssistRequest.Summary -> TextButton(enabled = !running && error == null, onClick = { token++; onClose() }) { Text("好") }
-                AssistRequest.Suggest -> TextButton(onClick = { token++; onClose() }) { Text("关闭") }
+                is AssistRequest.Summary -> TextButton(enabled = error == null, onClick = { stop(); onClose() }) { Text("好") }
+                AssistRequest.Suggest -> TextButton(onClick = { stop(); onClose() }) { Text("关闭") }
             }
         },
         dismissButton = {
-            if (request is AssistRequest.Polish) {
-                TextButton(onClick = { token++; onClose() }) { Text("取消") }
+            if (!running && request is AssistRequest.Polish) {
+                TextButton(onClick = { stop(); onClose() }) { Text("取消") }
             }
         },
     )

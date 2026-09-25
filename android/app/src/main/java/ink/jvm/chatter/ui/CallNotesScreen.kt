@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +37,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -138,6 +142,9 @@ private fun DetailPage(repo: ChatRepository, note: CallNotes.Note, onBack: () ->
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember(note.id) { mutableStateOf(false) }
+    var live by remember(note.id) { mutableStateOf("") }
+    var stopped by remember(note.id) { mutableStateOf(false) }
+    val work = remember(note.id) { mutableStateOf<Job?>(null) }
     val day = remember { DateTimeFormatter.ofPattern("M月d日 HH:mm") }
     val whenLabel = Instant.ofEpochMilli(note.at).atZone(ZoneId.systemDefault()).format(day)
     Scaffold(
@@ -148,21 +155,33 @@ private fun DetailPage(repo: ChatRepository, note: CallNotes.Note, onBack: () ->
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
                 actions = {
                     TextButton(
-                        enabled = !busy,
                         onClick = {
+                            if (busy) {
+                                work.value?.cancel()
+                                return@TextButton
+                            }
                             if (!LocalSummary.ready(ctx)) {
                                 Toast.makeText(ctx, "先下载纪要模型", Toast.LENGTH_SHORT).show()
                                 return@TextButton
                             }
                             busy = true
-                            scope.launch {
-                                runCatching { LocalSummary.summarize(ctx, CallNotes.modelText(note)) }
-                                    .onSuccess { CallNotes.setSummary(ctx, note.id, it) }
-                                    .onFailure { Toast.makeText(ctx, it.message ?: "整理失败", Toast.LENGTH_LONG).show() }
-                                busy = false
+                            stopped = false
+                            live = ""
+                            work.value = scope.launch {
+                                try {
+                                    val text = LocalSummary.summarize(ctx, CallNotes.modelText(note)) { live = it }
+                                    CallNotes.setSummary(ctx, note.id, text)
+                                } catch (e: CancellationException) {
+                                    stopped = true
+                                    if (live.isNotBlank()) CallNotes.setSummary(ctx, note.id, live.trim())
+                                } catch (e: Exception) {
+                                    Toast.makeText(ctx, e.message ?: "整理失败", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    busy = false
+                                }
                             }
                         },
-                    ) { Text(if (busy) "整理中" else "总结摘要") }
+                    ) { Text(if (busy) "停止" else "总结摘要") }
                 },
             )
         },
@@ -185,10 +204,22 @@ private fun DetailPage(repo: ChatRepository, note: CallNotes.Note, onBack: () ->
                         Column(Modifier.padding(14.dp)) {
                             Text("摘要", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.height(6.dp))
-                            Text(
-                                if (busy && note.summary.isBlank()) "正在这台手机上整理，不会上传。" else note.summary,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                            if (busy && live.isBlank()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("正在加载模型，第一次会久一些。不会上传。", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            } else {
+                                Text(
+                                    when {
+                                        live.isNotBlank() -> live + if (stopped && !busy) "\n\n已停止。" else ""
+                                        stopped -> "已停止。"
+                                        else -> note.summary
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
                             if (note.summary.isNotBlank()) {
                                 TextButton(onClick = {
                                     repo.sendText("通话纪要\n${note.summary}")

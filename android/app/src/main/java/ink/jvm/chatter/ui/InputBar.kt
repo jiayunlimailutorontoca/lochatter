@@ -163,7 +163,7 @@ internal fun InputBar(
     /** 「+」→ 拍摄. Null hides the tile. Long-press opens the system camera. */
     onCapture: (() -> Unit)? = null,
     onCaptureLong: (() -> Unit)? = null,
-    /** On-device Gemma. Null hides the tile. Nothing is uploaded. */
+    /** On-device Qwen. Null hides the shortcut. Nothing is uploaded. */
     onSummarizeChat: (() -> Unit)? = null,
     onPolish: (() -> Unit)? = null,
     onSuggest: (() -> Unit)? = null,

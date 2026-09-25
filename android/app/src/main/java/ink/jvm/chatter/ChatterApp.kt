@@ -15,6 +15,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import ink.jvm.chatter.call.CallManager
 import ink.jvm.chatter.data.ChatRepository
+import ink.jvm.chatter.media.LocalSummary
 import ink.jvm.chatter.data.Db
 import ink.jvm.chatter.data.LocalMessage
 import ink.jvm.chatter.data.Prefs
@@ -44,6 +45,12 @@ class ChatterApp : Application(), ImageLoaderFactory {
     /** True while the system TTS is reading (1.6: hands-free dictation waits for it). */
     val speaking = kotlinx.coroutines.flow.MutableStateFlow(false)
     private var ttsReady = false
+
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) LocalSummary.release()
+    }
 
     override fun onCreate() {
         super.onCreate()

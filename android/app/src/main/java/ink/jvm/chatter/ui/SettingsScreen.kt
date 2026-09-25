@@ -139,6 +139,7 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
         "bot" -> BotNameDialog(repo, botName, onClose = { dialog = null })
         "botmode" -> BotModeDialog(botMode, onPick = { botMode = it; repo.prefs.botInMain = it; dialog = null }, onClose = { dialog = null })
         "quick" -> QuickCommandsDialog(repo, onClose = { dialog = null })
+        "llm" -> ModelDialog(onClose = { dialog = null })
         "calls" -> CallStatsDialog(repo, onClose = { dialog = null })
         "quiet" -> QuietHoursDialog(repo, onClose = { dialog = null }, onChanged = { quietVersion++ })
         "appearance" -> AppearanceDialog(repo, onClose = { dialog = null }, onPickWallpaper = { (ctx as? MainActivity)?.pickWallpaper() })
@@ -356,14 +357,18 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                 }
             }
             Section("通话纪要") {
+                ink.jvm.chatter.media.LocalSummary.bind(ctx)
+                val modelId by ink.jvm.chatter.media.LocalSummary.choice.collectAsStateWithLifecycle()
+                val model = ink.jvm.chatter.media.LocalSummary.option(modelId)
                 val summaryStatus by ink.jvm.chatter.media.LocalSummary.status.collectAsStateWithLifecycle()
                 val summaryReady = ink.jvm.chatter.media.LocalSummary.ready(ctx)
+                Item("整理模型", model.title + "。" + model.detail) { dialog = "llm" }
                 Item(
-                    if (summaryReady) "纪要模型已就绪" else "下载纪要模型",
+                    if (summaryReady) "这个模型已就绪" else "下载这个模型",
                     summaryStatus ?: if (summaryReady) {
-                        "Gemma 3 1B。总结摘要、润色和建议回复都在这台手机上，不上传"
+                        "总结摘要、润色和建议回复都在这台手机上，不上传。生成时逐字显示，可以点停止。"
                     } else {
-                        "约 530 MB。从魔搭下载，国内可以直接下。没下好之前，这些功能只提示，不会开始下载。"
+                        model.downloadHint
                     },
                 ) {
                     if (!summaryReady && summaryStatus == null) {
@@ -687,6 +692,48 @@ private fun BotNameDialog(repo: ChatRepository, current: String, onClose: () -> 
             }) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onClose) { Text("取消") } },
+    )
+}
+
+@Composable
+private fun ModelDialog(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val current by ink.jvm.chatter.media.LocalSummary.choice.collectAsStateWithLifecycle()
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("整理模型") },
+        text = {
+            Column {
+                Text(
+                    "只在这台手机上运行，不上传。换型号不会自动下载。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ink.jvm.chatter.media.LocalSummary.options().forEach { option ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            ink.jvm.chatter.media.LocalSummary.select(ctx, option.id)
+                            onClose()
+                        }.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.RadioButton(
+                            selected = option.id == current,
+                            onClick = {
+                                ink.jvm.chatter.media.LocalSummary.select(ctx, option.id)
+                                onClose()
+                            },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(option.title, style = MaterialTheme.typography.bodyLarge)
+                            Text(option.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("关闭") } },
     )
 }
 
