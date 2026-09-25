@@ -186,10 +186,10 @@ class CallManager(private val app: Application, private val repo: ChatRepository
 
     // ---- user actions ----
 
-    /** Assistant calls are voice only. SDP and ICE go out in the clear; see [signal]. */
+    /** Human calls only. Assistant calls were removed in 2.4.0. */
     fun start(withVideo: Boolean, toBot: Boolean = false) {
+        if (toBot) return
         if (state.value != State.Idle) return
-        if (toBot && withVideo) return
         val id = UUID.randomUUID().toString()
         callId = id
         video = withVideo
@@ -207,13 +207,8 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         armTimeout(RING_MS) { finish("timeout", notifyPeer = true) }
     }
 
-    /** Redial the assistant from the ended screen. */
-    fun retry() {
-        if (state.value !is State.Ended || !withBot.value) return
-        endedJob?.cancel()
-        state.value = State.Idle
-        start(withVideo = false, toBot = true)
-    }
+    /** Redial is unused. Assistant calls are not placed. */
+    fun retry() = Unit
 
     private fun signal(frame: Frame) {
         repo.send(frame, e2e = !withBot.value)
@@ -400,6 +395,10 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         when (f) {
             is TurnCreds -> turn = f
             is CallInvite -> {
+                if (f.bot) {
+                    repo.send(CallReject(f.callId, "unavailable"), e2e = false)
+                    return
+                }
                 if (state.value != State.Idle) {
                     signal(CallReject(f.callId, "busy"))
                     return

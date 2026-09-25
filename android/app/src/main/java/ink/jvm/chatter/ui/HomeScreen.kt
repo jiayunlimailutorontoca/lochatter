@@ -1,5 +1,10 @@
 package ink.jvm.chatter.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -104,7 +109,11 @@ fun HomeScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(listOf("lochatter", "图片与文件", "我")[tab], fontWeight = FontWeight.SemiBold) },
+                title = {
+                    AnimatedContent(targetState = tab, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(120)) }, label = "home-title") { t ->
+                        Text(listOf("lochatter", "图片与文件", "我")[t], fontWeight = FontWeight.SemiBold)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
@@ -123,8 +132,13 @@ fun HomeScreen(
             }
         },
     ) { pad ->
-        Box(Modifier.fillMaxSize().padding(pad)) {
-            when (tab) {
+        AnimatedContent(
+            targetState = tab,
+            modifier = Modifier.fillMaxSize().padding(pad),
+            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
+            label = "home-tab",
+        ) { selected ->
+            when (selected) {
                 0 -> Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                     val peerRow: @Composable () -> Unit = {
                         ConversationRow(

@@ -20,6 +20,14 @@ import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.addCallback
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -424,14 +432,17 @@ private fun Root(repo: ChatRepository, calls: CallManager, onCollapse: () -> Boo
     }
 
     var page by remember { mutableStateOf(Page.HOME) }
+    var navForward by remember { mutableStateOf(true) }
     // Pages under the current one, newest last. Back always pops; it never stays on the same page.
     val backStack = remember { androidx.compose.runtime.mutableStateListOf<Page>() }
     fun open(next: Page) {
         if (next == page) return
+        navForward = true
         backStack.add(page)
         page = next
     }
     fun goBack() {
+        navForward = false
         page = if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) else Page.HOME
     }
     var locationMsg by remember { mutableStateOf<ink.jvm.chatter.data.LocalMessage?>(null) }
@@ -488,105 +499,81 @@ private fun Root(repo: ChatRepository, calls: CallManager, onCollapse: () -> Boo
         !loggedIn -> LoginScreen(repo = repo, onLoggedIn = { loggedIn = true; MainActivity.locked.value = false })
         locked && repo.prefs.appLock && callState == CallManager.State.Idle -> LockScreen(onUnlock)
         fullCall -> CallScreen(calls = calls, peerName = peerName, onCollapse = onCollapse)
-        page == Page.BOT -> Box(Modifier.fillMaxSize()) {
-            BotScreen(repo, onBack = { goBack() }, targetId = botTarget, onLocation = { openLocation(it, Page.BOT) }, onFile = { openFile(it, Page.BOT) }, onVoiceCall = { calls.start(withVideo = false, toBot = true) })
-            chip { goBack() }
-        }
-        page == Page.SETTINGS -> Box(Modifier.fillMaxSize()) {
-            SettingsScreen(
-                repo,
-                onBack = { goBack() },
-                onFontScale = { MainActivity.fontScale.value = it },
-                onOpenNotes = { noteFocus = null; open(Page.CALL_NOTES) },
-            )
-            chip { goBack() }
-        }
-        page == Page.CALL_NOTES -> Box(Modifier.fillMaxSize()) {
-            CallNotesScreen(repo, startId = noteFocus, onBack = { goBack() })
-            chip { goBack() }
-        }
-        page == Page.GALLERY -> Box(Modifier.fillMaxSize()) {
-            GalleryPage(repo, onBack = { goBack() }, onJump = { id -> open(Page.CHAT); MainActivity.pendingAction.value = "jump:$id" }, onOpenFile = { openFile(it, Page.GALLERY) })
-            chip { goBack() }
-        }
-        page == Page.FAVORITES -> Box(Modifier.fillMaxSize()) {
-            FavoritesScreen(repo, onBack = { goBack() }, onJump = { id -> open(Page.CHAT); MainActivity.pendingAction.value = "jump:$id" })
-            chip { goBack() }
-        }
-        page == Page.ANNIVERSARIES -> Box(Modifier.fillMaxSize()) {
-            AnniversaryScreen(repo, onBack = { goBack() })
-            chip { goBack() }
-        }
-        page == Page.PROFILE || page == Page.PEER_PROFILE -> Box(Modifier.fillMaxSize()) {
-            ProfileScreen(repo, mine = page == Page.PROFILE, onBack = { goBack() }, onAnniversaries = { open(Page.ANNIVERSARIES) }, onAlbum = { open(Page.ALBUM) })
-            chip { goBack() }
-        }
-        page == Page.ALBUM -> Box(Modifier.fillMaxSize()) {
-            AlbumScreen(repo, onBack = { goBack() }, onOpen = { m ->
-                if (m.kind == "file") openFile(m, Page.ALBUM)
-                else { locationMsg = null; fileMsg = null; open(Page.CHAT); MainActivity.pendingAction.value = "jump:${m.id}" }
-            })
-            chip { goBack() }
-        }
-        page == Page.LOCATION_VIEW && locationMsg != null -> Box(Modifier.fillMaxSize()) {
-            LocationPreviewScreen(repo, locationMsg!!, onBack = { goBack() })
-            chip { goBack() }
-        }
-        page == Page.LOCATION_PICK -> Box(Modifier.fillMaxSize()) {
-            LocationPickerScreen(repo, onSend = { fix, live -> repo.sendLocation(fix, live, pickToBot); goBack() }, onCancel = { goBack() })
-            chip { goBack() }
-        }
-        page == Page.FILE && fileMsg != null -> Box(Modifier.fillMaxSize()) {
-            FilePreviewScreen(repo, fileMsg!!, onBack = { goBack() })
-            chip { goBack() }
-        }
-        page == Page.HOME -> {
-            LaunchedEffect(Unit) { ChatService.start(ctx) }
-            Box(Modifier.fillMaxSize()) {
-                HomeScreen(
-                    repo,
-                    onOpenChat = { open(Page.CHAT) },
-                    onOpenBot = { botTarget = null; open(Page.BOT) },
-                    onSettings = { open(Page.SETTINGS) },
-                    onFavorites = { open(Page.FAVORITES) },
-                    onAnniversaries = { open(Page.ANNIVERSARIES) },
-                    onProfile = { open(Page.PROFILE) },
-                    onPeerProfile = { open(Page.PEER_PROFILE) },
-                    onAlbum = { open(Page.ALBUM) },
-                    gallery = { GalleryPage(repo, onBack = { }, onJump = { id -> open(Page.CHAT); MainActivity.pendingAction.value = "jump:$id" }, onOpenFile = { openFile(it, Page.HOME) }) },
-                )
-                chip { }
-            }
-        }
-        else -> {
-            LaunchedEffect(Unit) { ChatService.start(ctx) }
-            Box(Modifier.fillMaxSize()) {
-                ChatScreen(
-                    repo = repo,
-                    calls = calls,
-                    onLogout = {
-                        repo.logout()
-                        ChatService.stop(ctx)
-                        loggedIn = false
-                    },
-                    nav = ChatNav(
-                        onSettings = { open(Page.SETTINGS) },
-                        onBot = { id -> botTarget = id; open(Page.BOT) },
-                        onGallery = { open(Page.GALLERY) },
-                        onFavorites = { open(Page.FAVORITES) },
-                        onAnniversaries = { open(Page.ANNIVERSARIES) },
+        else -> Box(Modifier.fillMaxSize()) {
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    val dir = if (navForward) 1 else -1
+                    val slide = tween<androidx.compose.ui.unit.IntOffset>(280, easing = FastOutSlowInEasing)
+                    val fade = tween<Float>(200)
+                    (slideInHorizontally(slide) { it / 5 * dir } + fadeIn(fade)) togetherWith
+                        (slideOutHorizontally(slide) { -it / 8 * dir } + fadeOut(fade))
+                },
+                label = "page",
+            ) { dest ->
+                when {
+                    dest == Page.BOT -> BotScreen(repo, onBack = { goBack() }, targetId = botTarget, onLocation = { openLocation(it, Page.BOT) }, onFile = { openFile(it, Page.BOT) })
+                    dest == Page.SETTINGS -> SettingsScreen(
+                        repo,
                         onBack = { goBack() },
-                        onLocation = { openLocation(it, Page.CHAT) },
-                        onPickLocation = { toBot -> pickToBot = toBot; open(Page.LOCATION_PICK) },
-                        onFile = { openFile(it, Page.CHAT) },
-                        onProfile = { open(Page.PEER_PROFILE) },
-                        onAlbum = { open(Page.ALBUM) },
-                    ),
-                )
-                // Collapsed call: a small draggable chip floating over the chat (WeChat style), not a bar that
-                // pushes the conversation down. Tap to return to the call.
-                chip { }
+                        onFontScale = { MainActivity.fontScale.value = it },
+                        onOpenNotes = { noteFocus = null; open(Page.CALL_NOTES) },
+                    )
+                    dest == Page.CALL_NOTES -> CallNotesScreen(repo, startId = noteFocus, onBack = { goBack() })
+                    dest == Page.GALLERY -> GalleryPage(repo, onBack = { goBack() }, onJump = { id -> open(Page.CHAT); MainActivity.pendingAction.value = "jump:$id" }, onOpenFile = { openFile(it, Page.GALLERY) })
+                    dest == Page.FAVORITES -> FavoritesScreen(repo, onBack = { goBack() }, onJump = { id -> open(Page.CHAT); MainActivity.pendingAction.value = "jump:$id" })
+                    dest == Page.ANNIVERSARIES -> AnniversaryScreen(repo, onBack = { goBack() })
+                    dest == Page.PROFILE || dest == Page.PEER_PROFILE -> ProfileScreen(repo, mine = dest == Page.PROFILE, onBack = { goBack() }, onAnniversaries = { open(Page.ANNIVERSARIES) }, onAlbum = { open(Page.ALBUM) })
+                    dest == Page.ALBUM -> AlbumScreen(repo, onBack = { goBack() }, onOpen = { m ->
+                        if (m.kind == "file") openFile(m, Page.ALBUM)
+                        else { locationMsg = null; fileMsg = null; open(Page.CHAT); MainActivity.pendingAction.value = "jump:${m.id}" }
+                    })
+                    dest == Page.LOCATION_VIEW && locationMsg != null -> LocationPreviewScreen(repo, locationMsg!!, onBack = { goBack() })
+                    dest == Page.LOCATION_PICK -> LocationPickerScreen(repo, onSend = { fix, live -> repo.sendLocation(fix, live, pickToBot); goBack() }, onCancel = { goBack() })
+                    dest == Page.FILE && fileMsg != null -> FilePreviewScreen(repo, fileMsg!!, onBack = { goBack() })
+                    dest == Page.HOME -> {
+                        LaunchedEffect(Unit) { ChatService.start(ctx) }
+                        HomeScreen(
+                            repo,
+                            onOpenChat = { open(Page.CHAT) },
+                            onOpenBot = { botTarget = null; open(Page.BOT) },
+                            onSettings = { open(Page.SETTINGS) },
+                            onFavorites = { open(Page.FAVORITES) },
+                            onAnniversaries = { open(Page.ANNIVERSARIES) },
+                            onProfile = { open(Page.PROFILE) },
+                            onPeerProfile = { open(Page.PEER_PROFILE) },
+                            onAlbum = { open(Page.ALBUM) },
+                            gallery = { GalleryPage(repo, onBack = { }, onJump = { id -> open(Page.CHAT); MainActivity.pendingAction.value = "jump:$id" }, onOpenFile = { openFile(it, Page.HOME) }) },
+                        )
+                    }
+                    else -> {
+                        LaunchedEffect(Unit) { ChatService.start(ctx) }
+                        ChatScreen(
+                            repo = repo,
+                            calls = calls,
+                            onLogout = {
+                                repo.logout()
+                                ChatService.stop(ctx)
+                                loggedIn = false
+                            },
+                            nav = ChatNav(
+                                onSettings = { open(Page.SETTINGS) },
+                                onBot = { id -> botTarget = id; open(Page.BOT) },
+                                onGallery = { open(Page.GALLERY) },
+                                onFavorites = { open(Page.FAVORITES) },
+                                onAnniversaries = { open(Page.ANNIVERSARIES) },
+                                onBack = { goBack() },
+                                onLocation = { openLocation(it, Page.CHAT) },
+                                onPickLocation = { toBot -> pickToBot = toBot; open(Page.LOCATION_PICK) },
+                                onFile = { openFile(it, Page.CHAT) },
+                                onProfile = { open(Page.PEER_PROFILE) },
+                                onAlbum = { open(Page.ALBUM) },
+                            ),
+                        )
+                    }
+                }
             }
+            chip { if (page != Page.HOME && page != Page.CHAT) goBack() }
         }
     }
 }

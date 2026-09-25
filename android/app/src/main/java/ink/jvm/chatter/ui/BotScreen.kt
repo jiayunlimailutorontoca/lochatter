@@ -34,7 +34,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -115,7 +114,7 @@ private val BOT_COMMANDS = listOf(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BotScreen(repo: ChatRepository, onBack: () -> Unit, targetId: String? = null, onLocation: (LocalMessage) -> Unit = {}, onFile: (LocalMessage) -> Unit = {}, onVoiceCall: () -> Unit = {}) {
+fun BotScreen(repo: ChatRepository, onBack: () -> Unit, targetId: String? = null, onLocation: (LocalMessage) -> Unit = {}, onFile: (LocalMessage) -> Unit = {}) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as ChatterApp
     val scope = rememberCoroutineScope()
@@ -174,29 +173,6 @@ fun BotScreen(repo: ChatRepository, onBack: () -> Unit, targetId: String? = null
         repo.sendText(t, replyTo?.id, toBot = true)
         replyTo = null
     }
-    var pendingCall by remember { mutableStateOf(false) }
-    val callPerms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        val go = pendingCall
-        pendingCall = false
-        if (go && hasCallAudioPerms(ctx, false)) onVoiceCall()
-        else if (go) Toast.makeText(ctx, "需要麦克风权限才能通话", Toast.LENGTH_LONG).show()
-    }
-    fun dialAssistant() {
-        if (!connected) {
-            Toast.makeText(ctx, "未连接到服务器", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (!online) {
-            Toast.makeText(ctx, "助手不在线", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (hasCallAudioPerms(ctx, false)) onVoiceCall()
-        else {
-            pendingCall = true
-            callPerms.launch(callPermissions(false))
-        }
-    }
-
     LaunchedEffect(sharedMedia) { if (sharedMedia.isNotEmpty()) { preview = sharedMedia; repo.sharedMedia.value = emptyList() } }
     LaunchedEffect(pickedFile) {
         val uri = pickedFile ?: return@LaunchedEffect
@@ -307,9 +283,6 @@ fun BotScreen(repo: ChatRepository, onBack: () -> Unit, targetId: String? = null
                             }
                         },
                         actions = {
-                            IconButton(onClick = { dialAssistant() }, enabled = connected) {
-                                Icon(Icons.Default.Call, contentDescription = "和助手打电话", tint = if (connected && online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
-                            }
                             IconButton(onClick = { driveMode = !driveMode; repo.prefs.botDriveMode = driveMode; if (!driveMode) app.stopSpeaking() else app.checkChineseTts { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() }; Toast.makeText(ctx, if (driveMode) "开车模式：新回复自动朗读" else "已关闭自动朗读", Toast.LENGTH_SHORT).show() }) {
                                 Icon(painterResource(R.drawable.ic_volume), contentDescription = "自动朗读", tint = if (driveMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -393,15 +366,13 @@ fun BotScreen(repo: ChatRepository, onBack: () -> Unit, targetId: String? = null
                             else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         },
                         below = {
-                            if (stickerPanel) {
-                                StickerPanel(
-                                    catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
-                                    onPick = { ref -> repo.sendSticker(ref, toBot = true, replyTo = replyTo?.id); replyTo = null },
-                                    onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
-                                    onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
-                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface),
-                                )
-                            }
+                            StickerPanel(
+                                catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
+                                onPick = { ref -> repo.sendSticker(ref, toBot = true, replyTo = replyTo?.id); replyTo = null },
+                                onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
+                                onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
+                                modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+                            )
                         },
                     )
                 }

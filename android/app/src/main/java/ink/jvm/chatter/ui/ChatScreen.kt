@@ -44,8 +44,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -174,7 +172,6 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
     val keyConflict by repo.keyConflict.collectAsStateWithLifecycle()
     val sharedText by repo.sharedText.collectAsStateWithLifecycle()
     val sharedMedia by repo.sharedMedia.collectAsStateWithLifecycle()
-    val ttl by repo.ttlSeconds.collectAsStateWithLifecycle()
     val botNameRaw by repo.botName.collectAsStateWithLifecycle()
     val botName = botNameRaw.ifEmpty { "助手" }
     val botUnread by repo.botUnread.collectAsStateWithLifecycle()
@@ -202,7 +199,6 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
     var clearDialog by remember { mutableStateOf(false) }
     var safetyDialog by remember { mutableStateOf(false) }
     var bgDialog by remember { mutableStateOf(false) }
-    var ttlDialog by remember { mutableStateOf(false) }
     var assist by remember { mutableStateOf<AssistRequest?>(null) }
     var summaryCount by remember { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -508,6 +504,13 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                             }
                         },
                         actions = {
+                            val callTint = if (connected && !inCall) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
+                            IconButton(onClick = { dial(false) }, enabled = connected && !inCall) {
+                                Icon(Icons.Default.Call, contentDescription = "语音通话", tint = callTint)
+                            }
+                            IconButton(onClick = { dial(true) }, enabled = connected && !inCall) {
+                                Icon(painterResource(R.drawable.ic_videocam), contentDescription = "视频通话", tint = callTint)
+                            }
                             if (botNameRaw.isNotEmpty()) IconButton(onClick = { nav.onBot(null) }) {
                                 Box {
                                     Icon(painterResource(R.drawable.ic_bot), contentDescription = botName, tint = MaterialTheme.colorScheme.primary)
@@ -516,17 +519,7 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                             }
                             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "菜单") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                DropdownMenuItem(text = { Text("语音通话") }, leadingIcon = { Icon(Icons.Default.Call, contentDescription = null) }, enabled = connected && !inCall, onClick = { menu = false; dial(false) })
-                                DropdownMenuItem(text = { Text("视频通话") }, leadingIcon = { Icon(painterResource(R.drawable.ic_videocam), contentDescription = null) }, enabled = connected && !inCall, onClick = { menu = false; dial(true) })
-                                DropdownMenuItem(text = { Text("对方资料") }, leadingIcon = { Icon(painterResource(R.drawable.ic_new_chat), contentDescription = null) }, onClick = { menu = false; nav.onProfile() })
-                                DropdownMenuItem(text = { Text("我们的相册") }, leadingIcon = { Icon(painterResource(R.drawable.ic_gallery), contentDescription = null) }, onClick = { menu = false; nav.onAlbum() })
                                 DropdownMenuItem(text = { Text("搜索消息") }, leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }, onClick = { menu = false; searching = true })
-                                DropdownMenuItem(text = { Text("发送位置") }, leadingIcon = { Icon(painterResource(R.drawable.ic_location), contentDescription = null) }, onClick = { menu = false; nav.onPickLocation(askBot) })
-                                DropdownMenuItem(text = { Text("图片与文件") }, leadingIcon = { Icon(painterResource(R.drawable.ic_gallery), contentDescription = null) }, onClick = { menu = false; nav.onGallery() })
-                                DropdownMenuItem(text = { Text("收藏") }, leadingIcon = { Icon(Icons.Default.Star, contentDescription = null) }, onClick = { menu = false; nav.onFavorites() })
-                                DropdownMenuItem(text = { Text("纪念日") }, leadingIcon = { Icon(painterResource(R.drawable.ic_heart), contentDescription = null) }, onClick = { menu = false; nav.onAnniversaries() })
-                                DropdownMenuItem(text = { Text("设置") }, leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }, onClick = { menu = false; nav.onSettings() })
-                                DropdownMenuItem(text = { Text("消息定时销毁" + if (ttl > 0) "：${ChatExport.ttlLabel(ttl)}" else "") }, leadingIcon = { Icon(painterResource(R.drawable.ic_pending), contentDescription = null) }, onClick = { menu = false; ttlDialog = true })
                                 DropdownMenuItem(text = { Text("后台运行设置") }, leadingIcon = { Icon(painterResource(R.drawable.ic_shield), contentDescription = null) }, onClick = { menu = false; bgDialog = true })
                                 DropdownMenuItem(text = { Text("清空聊天记录") }, leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }, onClick = { menu = false; clearDialog = true })
                                 DropdownMenuItem(text = { Text("退出登录") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) }, onClick = { menu = false; onLogout() })
@@ -573,9 +566,7 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                 editing = editing,
                 onCancelEdit = { editing = null; input = repo.prefs.draft },
                 encrypted = e2e != ChatRepository.E2eState.OFF,
-                botName = botNameRaw.takeIf { it.isNotEmpty() && botMode != "hidden" },
                 toBot = askBot,
-                onToggleBot = { toBot = !toBot },
                 onPickImage = { (ctx as? MainActivity)?.pickImages() },
                 onPickFile = { (ctx as? MainActivity)?.pickFile() },
                 onVoice = { f, d -> scope.launch { runCatching { repo.sendVoice(f, d, askBot) }.onFailure { fail(it) } } },
@@ -612,15 +603,13 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                     }
                 }) else null,
                 below = {
-                    if (stickerPanel) {
-                        StickerPanel(
-                            catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
-                            onPick = { ref -> repo.sendSticker(ref, askBot, replyTo?.id); replyTo = null },
-                            onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
-                            onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
-                            modifier = Modifier.background(MaterialTheme.colorScheme.surface),
-                        )
-                    }
+                    StickerPanel(
+                        catalog = repo.stickers, serverUrl = repo.prefs.serverUrl, favorites = stickerFavs,
+                        onPick = { ref -> repo.sendSticker(ref, askBot, replyTo?.id); replyTo = null },
+                        onAddCustom = { (ctx as? MainActivity)?.pickSticker() },
+                        onRemoveFavorite = { ref -> scope.launch { runCatching { repo.removeStickerFavorite(ref) } } },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+                    )
                 },
             )
         },
@@ -827,7 +816,6 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
             bgWarn = bgWarning(ctx, repo)
         })
     }
-    if (ttlDialog) TtlPicker(ttl, onPick = { repo.setTtl(it); ttlDialog = false }, onClose = { ttlDialog = false })
     if (summaryCount) {
         AlertDialog(
             onDismissRequest = { summaryCount = false },

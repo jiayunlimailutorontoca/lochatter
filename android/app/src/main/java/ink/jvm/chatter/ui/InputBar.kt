@@ -3,10 +3,19 @@ package ink.jvm.chatter.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -15,10 +24,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
@@ -57,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -167,6 +179,7 @@ internal fun InputBar(
     val recorder = remember { VoiceRecorder(ctx) }
     var voiceMode by remember { mutableStateOf(false) }
     var plusOpen by remember { mutableStateOf(false) }
+    val plusTurn by animateFloatAsState(if (plusOpen) 45f else 0f, tween(200), label = "plus")
     var recording by remember { mutableStateOf(false) }
     var zone by remember { mutableIntStateOf(0) } // 0 send, 1 cancel, 2 to text
     var level by remember { mutableFloatStateOf(0f) }
@@ -272,7 +285,13 @@ internal fun InputBar(
                     }
                 }
             }
-            if (botName != null && !recording && editing == null) {
+            if (!recording && editing == null && (onSummarizeChat != null || onPolish != null || onSuggest != null)) {
+                Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    onSummarizeChat?.let { AssistShortcut("总结聊天", it) }
+                    onPolish?.let { AssistShortcut("润色", it) }
+                    onSuggest?.let { AssistShortcut("建议回复", it) }
+                }
+            } else if (botName != null && !recording && editing == null) {
                 Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     val fg = if (toBot) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.primary
                     Row(
@@ -398,11 +417,15 @@ internal fun InputBar(
                     }
                 } else {
                     IconButton(onClick = { if (plusOpen) { plusOpen = false; keyboard?.show() } else openPlus() }, enabled = !recording) {
-                        Icon(Icons.Default.Add, contentDescription = "更多", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.Add, contentDescription = "更多", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(28.dp).rotate(plusTurn))
                     }
                 }
             }
-            if (plusOpen && !recording) {
+            AnimatedVisibility(
+                visible = plusOpen && !recording,
+                enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+                exit = shrinkVertically(tween(180)) + fadeOut(tween(140)),
+            ) {
                 val items = buildList {
                     add(PlusItem("相册", painterResource(R.drawable.ic_gallery)) { plusOpen = false; onPickImage() })
                     onCapture?.let { shot ->
@@ -417,31 +440,45 @@ internal fun InputBar(
                     onFavorites?.let { add(PlusItem("收藏", rememberVectorPainter(Icons.Default.Star)) { plusOpen = false; it() }) }
                     onSchedule?.let { add(PlusItem("定时发送", painterResource(R.drawable.ic_schedule)) { if (value.isBlank()) Toast.makeText(ctx, "先在输入框里写好要定时发的内容", Toast.LENGTH_SHORT).show() else { plusOpen = false; it() } }) }
                     onDictate?.let { add(PlusItem("说话转文字", painterResource(R.drawable.ic_mic)) { plusOpen = false; it() }) }
-                    onSummarizeChat?.let { add(PlusItem("总结聊天", painterResource(R.drawable.ic_new_chat)) { plusOpen = false; it() }) }
-                    onPolish?.let { add(PlusItem("润色", painterResource(R.drawable.ic_draw)) { plusOpen = false; it() }) }
-                    onSuggest?.let { add(PlusItem("建议回复", painterResource(R.drawable.ic_reply)) { plusOpen = false; it() }) }
                 }
-                FlowRow(
-                    maxItemsInEachRow = 4,
-                    modifier = Modifier.fillMaxWidth().height(panelHeight()).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = panelHeight()).verticalScroll(rememberScrollState())
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 12.dp),
                 ) {
-                    items.forEach { it ->
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.width(76.dp).padding(bottom = 18.dp).combinedClickable(onClick = it.onClick, onLongClick = it.onLongClick),
-                        ) {
-                            Box(Modifier.size(58.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-                                Icon(it.icon, contentDescription = it.label, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(26.dp))
+                    FlowRow(maxItemsInEachRow = 4, modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        items.forEach { item ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.width(76.dp).padding(bottom = 14.dp).combinedClickable(onClick = item.onClick, onLongClick = item.onLongClick),
+                            ) {
+                                Box(Modifier.size(58.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
+                                    Icon(item.icon, contentDescription = item.label, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(26.dp))
+                                }
+                                Text(item.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                             }
-                            Text(it.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                         }
                     }
                 }
             }
         }
     }
-        below?.invoke()
+        AnimatedVisibility(
+            visible = stickerOpen && below != null,
+            enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(180)) + fadeOut(tween(140)),
+        ) {
+            below?.invoke()
+        }
+    }
+}
+
+@Composable
+private fun RowScope.AssistShortcut(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable(onClick = onClick).padding(vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 
