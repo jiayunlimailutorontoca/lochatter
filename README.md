@@ -2,7 +2,7 @@
 
 lochatter 是一套供两名用户使用的即时通讯系统，包含 Android 客户端、.NET 服务端、可选 Web 客户端，以及可选的 Hermes 助手插件。文本、图像、语音消息与文件默认在客户端完成端到端加密。服务端负责投递密文、保存密文媒体，以及转发通话信令，不解析消息正文。
 
-当前版本：Android 2.3.0（`versionCode` 40），服务端 2.3.0。Android 包名 `ink.jvm.chatter`，安装包仅包含 `arm64-v8a`。许可证 [MIT](LICENSE)，版权所有 2026 laosaonan2。
+当前版本：Android 2.3.1（`versionCode` 41），服务端 2.3.0。Android 包名 `ink.jvm.chatter`，安装包仅包含 `arm64-v8a`。许可证 [MIT](LICENSE)，版权所有 2026 laosaonan2。
 
 [English](README.en.md)
 
@@ -13,6 +13,8 @@ lochatter 是一套供两名用户使用的即时通讯系统，包含 Android �
 2.2.2 不增加消息 `kind`，也不增加 WebSocket 帧。数据库 schema 仍为 9。网页改为手机扫码确认登录；令牌与密钥环只留在该次页面的内存中。Android `versionCode` 为 38。服务端 `Version` 为 `2.2.2`。
 
 2.3.0 不增加消息 `kind`，也不增加 WebSocket 帧。数据库 schema 仍为 9。Android `versionCode` 为 40。服务端 `Version` 为 `2.3.0`。人类通话先经中转接通。仍为中转时，主叫约每 20 秒重新搜集候选地址；直连成功则切换媒体路径，失败则保持该次通话。TCP 中转仅作最后手段。通话字幕仅由本机麦克风在端侧生成，不发送。通话纪要默认关闭。用户打开后，本机模型只根据本机字幕生成纪要，不上传。助手通话不在本版本的变更范围内。网页在页面内存中解密后播放语音与视频，按解密后的文件名下载文件，图像与相册图片可放大查看。
+
+2.3.1 不修改协议与服务端。Android `versionCode` 为 41。纪要模型在设置中单独下载。打开「挂断后整理纪要」不开始下载。模型未在本机就绪时，该开关保持关闭。
 
 ## 1. 客户端与账号
 

@@ -41,7 +41,7 @@ object LocalSummary {
         return f.isFile && f.length() > MIN_BYTES
     }
 
-    /** Download the weight file. Call this only from the settings switch, never from a call. */
+    /** Download the weight file. Call this only from the settings download row, never from the summary switch and never from a call. */
     suspend fun ensure(ctx: Context) = withContext(Dispatchers.IO) {
         gate.withLock {
             try {

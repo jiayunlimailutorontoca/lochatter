@@ -21,3 +21,11 @@ Android `versionCode` 为 40，`versionName` 为 `2.3.0`。服务端 `Version` �
 ## 网页
 
 网页在该次页面的内存中解密后播放 `audio` 与 `video`。`image` 与 `album` 可放大查看。`file` 按解密后的文件名下载。`location`、`call` 与 `sticker` 仍显示为一行摘要。令牌与密钥环仍不写入浏览器存储。网页不提供通话，也不提供助手操作。
+
+## 2.3.1
+
+2.3.1 仅修订 Android 客户端。不新增帧，不新增 `kind`，数据库 schema 仍为 9。服务端 `Version` 仍为 `2.3.0`。`GET /healthz` 的 `version` 仍返回 `2.3.0`。
+
+Android `versionCode` 为 41，`versionName` 为 `2.3.1`。
+
+纪要模型须由设置中的「下载纪要模型」单独下载。打开「挂断后整理纪要」不得开始下载。模型文件未在本机就绪时，该开关保持关闭。通话进行中不得下载该模型。下载完成不得自动打开该开关。

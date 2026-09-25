@@ -87,7 +87,6 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
     var cloudStt by remember { mutableStateOf(repo.prefs.cloudStt) }
     var cloudUrl by remember { mutableStateOf(repo.prefs.cloudSttUrl) }
     var callSummary by remember { mutableStateOf(repo.prefs.callSummary) }
-    var summaryReq by remember { mutableStateOf(0) }
     var pushProvider by remember { mutableStateOf("off") }
     var pushSecret by remember { mutableStateOf("") }
     var pushEvery by remember { mutableStateOf("60") }
@@ -360,40 +359,39 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
             Section("通话纪要") {
                 val summaryStatus by ink.jvm.chatter.media.LocalSummary.status.collectAsStateWithLifecycle()
                 val summaryReady = ink.jvm.chatter.media.LocalSummary.ready(ctx)
+                Item(
+                    if (summaryReady) "纪要模型已就绪" else "下载纪要模型",
+                    summaryStatus ?: if (summaryReady) {
+                        "Gemma 3 1B，只在这台手机上整理，不上传"
+                    } else {
+                        "约 550 MB。点这里才下载。没下好之前，打开下面的开关也不会整理，也不会开始下载。"
+                    },
+                ) {
+                    if (!summaryReady && summaryStatus == null) {
+                        scope.launch {
+                            runCatching { ink.jvm.chatter.media.LocalSummary.ensure(ctx) }
+                                .onSuccess { Toast.makeText(ctx, "纪要模型已就绪", Toast.LENGTH_SHORT).show() }
+                                .onFailure { Toast.makeText(ctx, it.message ?: "下载失败", Toast.LENGTH_LONG).show() }
+                        }
+                    }
+                }
                 SwitchItem(
                     "挂断后整理纪要",
-                    summaryStatus ?: if (summaryReady) {
-                        "默认关。用本机的 Gemma 3 1B 整理这台手机听到的话，不上传。模型已在手机上。"
+                    if (summaryReady) {
+                        "默认关。用本机的 Gemma 3 1B 整理这台手机听到的话，不上传。"
                     } else {
-                        "默认关。打开后下载 Gemma 3 1B（约 550 MB），只在这台手机上整理，不上传。"
+                        "默认关。模型还没在这台手机上。打开不会整理，也不会下载。"
                     },
                     callSummary,
                 ) { on ->
                     if (!on) {
-                        summaryReq += 1
                         callSummary = false
                         repo.prefs.callSummary = false
                     } else if (ink.jvm.chatter.media.LocalSummary.ready(ctx)) {
                         callSummary = true
                         repo.prefs.callSummary = true
                     } else {
-                        val req = summaryReq + 1
-                        summaryReq = req
-                        scope.launch {
-                            runCatching { ink.jvm.chatter.media.LocalSummary.ensure(ctx) }
-                                .onSuccess {
-                                    if (summaryReq != req) return@launch
-                                    callSummary = true
-                                    repo.prefs.callSummary = true
-                                    Toast.makeText(ctx, "纪要模型已就绪", Toast.LENGTH_SHORT).show()
-                                }
-                                .onFailure {
-                                    if (summaryReq != req) return@launch
-                                    callSummary = false
-                                    repo.prefs.callSummary = false
-                                    Toast.makeText(ctx, it.message ?: "下载失败", Toast.LENGTH_LONG).show()
-                                }
-                        }
+                        Toast.makeText(ctx, "先下载纪要模型", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
