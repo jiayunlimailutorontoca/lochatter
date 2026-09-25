@@ -203,6 +203,8 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
     var safetyDialog by remember { mutableStateOf(false) }
     var bgDialog by remember { mutableStateOf(false) }
     var ttlDialog by remember { mutableStateOf(false) }
+    var assist by remember { mutableStateOf<AssistRequest?>(null) }
+    var summaryCount by remember { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var stickerPanel by remember { mutableStateOf(false) }
@@ -590,6 +592,12 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                 onFavorites = { nav.onFavorites() },
                 onCapture = { capturing = true },
                 onCaptureLong = systemCamera,
+                onSummarizeChat = { summaryCount = true },
+                onPolish = {
+                    if (input.isBlank()) Toast.makeText(ctx, "先在输入框里写好要润色的话", Toast.LENGTH_SHORT).show()
+                    else assist = AssistRequest.Polish
+                },
+                onSuggest = { assist = AssistRequest.Suggest },
                 transcribe = { f -> ink.jvm.chatter.media.Speech.transcribe(ctx, repo, f) },
                 onSendText = { t -> repo.sendText(t, replyTo?.id, askBot); replyTo = null },
                 banner = if (scheduled.isNotEmpty()) ({
@@ -820,6 +828,22 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
         })
     }
     if (ttlDialog) TtlPicker(ttl, onPick = { repo.setTtl(it); ttlDialog = false }, onClose = { ttlDialog = false })
+    if (summaryCount) {
+        AlertDialog(
+            onDismissRequest = { summaryCount = false },
+            title = { Text("总结最近的消息") },
+            text = { Text("用这台手机上的模型看双方最近的文字。不会上传。") },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = { summaryCount = false; assist = AssistRequest.Summary(20) }) { Text("20 条") }
+                    TextButton(onClick = { summaryCount = false; assist = AssistRequest.Summary(50) }) { Text("50 条") }
+                    TextButton(onClick = { summaryCount = false; assist = AssistRequest.Summary(100) }) { Text("100 条") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { summaryCount = false }) { Text("取消") } },
+        )
+    }
+    ChatAssistDialog(repo, assist, input, onDraft = { input = it }, onClose = { assist = null })
     if (safetyDialog) SafetyNumberDialog(repo, repo.prefs.e2eVerified, onVerified = { repo.setVerified(it) }, onClose = { safetyDialog = false })
     keyConflict?.let { KeyConflictDialog(repo) }
     preview?.let { uris ->

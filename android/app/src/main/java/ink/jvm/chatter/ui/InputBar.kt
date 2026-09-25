@@ -151,6 +151,10 @@ internal fun InputBar(
     /** 「+」→ 拍摄. Null hides the tile. Long-press opens the system camera. */
     onCapture: (() -> Unit)? = null,
     onCaptureLong: (() -> Unit)? = null,
+    /** On-device Gemma. Null hides the tile. Nothing is uploaded. */
+    onSummarizeChat: (() -> Unit)? = null,
+    onPolish: (() -> Unit)? = null,
+    onSuggest: (() -> Unit)? = null,
 ) {
     val palette = LocalChatPalette.current
     val ctx = LocalContext.current
@@ -413,6 +417,9 @@ internal fun InputBar(
                     onFavorites?.let { add(PlusItem("收藏", rememberVectorPainter(Icons.Default.Star)) { plusOpen = false; it() }) }
                     onSchedule?.let { add(PlusItem("定时发送", painterResource(R.drawable.ic_schedule)) { if (value.isBlank()) Toast.makeText(ctx, "先在输入框里写好要定时发的内容", Toast.LENGTH_SHORT).show() else { plusOpen = false; it() } }) }
                     onDictate?.let { add(PlusItem("说话转文字", painterResource(R.drawable.ic_mic)) { plusOpen = false; it() }) }
+                    onSummarizeChat?.let { add(PlusItem("总结聊天", painterResource(R.drawable.ic_new_chat)) { plusOpen = false; it() }) }
+                    onPolish?.let { add(PlusItem("润色", painterResource(R.drawable.ic_draw)) { plusOpen = false; it() }) }
+                    onSuggest?.let { add(PlusItem("建议回复", painterResource(R.drawable.ic_reply)) { plusOpen = false; it() }) }
                 }
                 FlowRow(
                     maxItemsInEachRow = 4,

@@ -71,7 +71,7 @@ import kotlinx.coroutines.launch
 /** Full-screen settings: encryption, account, chat, appearance, storage, diagnostics, about. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float) -> Unit) {
+fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float) -> Unit, onOpenNotes: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val palette = LocalChatPalette.current
@@ -86,7 +86,6 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
     var botVoice by remember { mutableStateOf(repo.prefs.botVoiceToText) }
     var cloudStt by remember { mutableStateOf(repo.prefs.cloudStt) }
     var cloudUrl by remember { mutableStateOf(repo.prefs.cloudSttUrl) }
-    var callSummary by remember { mutableStateOf(repo.prefs.callSummary) }
     var pushProvider by remember { mutableStateOf("off") }
     var pushSecret by remember { mutableStateOf("") }
     var pushEvery by remember { mutableStateOf("60") }
@@ -362,9 +361,9 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                 Item(
                     if (summaryReady) "纪要模型已就绪" else "下载纪要模型",
                     summaryStatus ?: if (summaryReady) {
-                        "Gemma 3 1B，只在这台手机上整理，不上传"
+                        "Gemma 3 1B。总结摘要、润色和建议回复都在这台手机上，不上传"
                     } else {
-                        "约 530 MB。从魔搭下载，国内可以直接下。没下好之前，打开下面的开关也不会整理，也不会开始下载。"
+                        "约 530 MB。从魔搭下载，国内可以直接下。没下好之前，这些功能只提示，不会开始下载。"
                     },
                 ) {
                     if (!summaryReady && summaryStatus == null) {
@@ -375,25 +374,10 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                         }
                     }
                 }
-                SwitchItem(
-                    "挂断后整理纪要",
-                    if (summaryReady) {
-                        "默认关。用本机的 Gemma 3 1B 整理这台手机听到的话，不上传。"
-                    } else {
-                        "默认关。模型还没在这台手机上。打开不会整理，也不会下载。"
-                    },
-                    callSummary,
-                ) { on ->
-                    if (!on) {
-                        callSummary = false
-                        repo.prefs.callSummary = false
-                    } else if (ink.jvm.chatter.media.LocalSummary.ready(ctx)) {
-                        callSummary = true
-                        repo.prefs.callSummary = true
-                    } else {
-                        Toast.makeText(ctx, "先下载纪要模型", Toast.LENGTH_SHORT).show()
-                    }
-                }
+                Item(
+                    "通话文字记录",
+                    "挂断后按时间列出这台手机说的话。右边的「总结摘要」才调用模型。",
+                ) { onOpenNotes() }
             }
             Section("助手") {
                 if (botName.isEmpty()) {

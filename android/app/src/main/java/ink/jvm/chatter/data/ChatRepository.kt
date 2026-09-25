@@ -115,6 +115,9 @@ class ChatRepository(internal val app: Application, val prefs: Prefs, internal v
     val stickers = StickerCatalog(app, http) { prefs.serverUrl }
 
     val messages: StateFlow<List<LocalMessage>> get() = inbox.messages
+
+    /** Newest visible messages, oldest first. */
+    fun recentMessages(limit: Int): List<LocalMessage> = db.recent(limit)
     val hasOlder: StateFlow<Boolean> get() = inbox.hasOlder
     val loadingOlder: StateFlow<Boolean> get() = inbox.loadingOlder
     val connection = MutableStateFlow(WsClient.State.DISCONNECTED)

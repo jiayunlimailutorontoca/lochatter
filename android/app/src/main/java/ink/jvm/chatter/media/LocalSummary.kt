@@ -68,10 +68,42 @@ object LocalSummary {
     }
 
     /**
-     * Summarize [transcript] on this phone. [transcript] is not written to disk and is not posted anywhere.
+     * Summarize this phone's call captions. The text is not posted anywhere.
      */
-    suspend fun summarize(ctx: Context, transcript: String): String = withContext(Dispatchers.Default) {
-        val text = transcript.trim()
+    suspend fun summarize(ctx: Context, transcript: String): String {
+        if (transcript.isBlank()) throw IOException("没有可整理的内容")
+        return complete(ctx, prompt(transcript))
+    }
+
+    /** What the two people said in recent text messages. On this phone only. */
+    suspend fun summarizeChat(ctx: Context, dialog: String): String {
+        if (dialog.isBlank()) throw IOException("没有可总结的消息")
+        return complete(ctx, chatPrompt(dialog))
+    }
+
+    /** Rewrite [draft] without adding facts. On this phone only. */
+    suspend fun polish(ctx: Context, draft: String): String {
+        if (draft.isBlank()) throw IOException("没有可润色的内容")
+        return complete(ctx, polishPrompt(draft.take(2000)))
+    }
+
+    /** Up to three short replies the user could send. On this phone only. */
+    suspend fun suggest(ctx: Context, dialog: String): List<String> {
+        if (dialog.isBlank()) throw IOException("没有可参考的消息")
+        val raw = complete(ctx, suggestPrompt(dialog))
+        val lines = raw.lineSequence()
+            .map { it.trim().trim('"', '“', '”') }
+            .map { it.replace(Regex("^[0-9]+[.、．]\\s*"), "").replace(Regex("^[-•]\\s*"), "").trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(3)
+            .toList()
+        if (lines.isEmpty()) throw IOException("没有想出回复")
+        return lines
+    }
+
+    private suspend fun complete(ctx: Context, prompt: String): String = withContext(Dispatchers.Default) {
+        val text = prompt.trim()
         if (text.isEmpty()) throw IOException("没有可整理的内容")
         if (!ready(ctx)) throw IOException("纪要模型未就绪")
         gate.withLock {
@@ -99,7 +131,7 @@ object LocalSummary {
                         .build(),
                 )
                 try {
-                    session.addQueryChunk(prompt(text))
+                    session.addQueryChunk(text)
                     val out = session.generateResponse().trim()
                     if (out.isEmpty()) throw IOException("没有整理出内容")
                     out
@@ -119,9 +151,27 @@ object LocalSummary {
     }
 
     private fun prompt(transcript: String): String = """
-        下面是这台手机麦克风在通话里听到的话，只有这一方，没有对方。请用简体中文写一段简短纪要，一百五十字以内。不要编造没有出现的内容，不要写成双方对话。内容很少就概括那一两句。
+        下面是这台手机麦克风在通话里听到的话，每行开头是时间，只有这一方，没有对方。请用简体中文写一段简短纪要，一百五十字以内。不要编造没有出现的内容，不要写成双方对话。内容很少就概括那一两句。只输出纪要。
 
         $transcript
+    """.trimIndent()
+
+    private fun chatPrompt(dialog: String): String = """
+        下面是两人最近的文字消息，每行以说话人开头。用简体中文概括双方聊了什么，一百五十字以内。不要编造。只输出概括。
+
+        $dialog
+    """.trimIndent()
+
+    private fun polishPrompt(draft: String): String = """
+        把下面的话润色成自然的简体中文，意思不变，不要增加内容，不要解释。只输出润色后的文字。
+
+        $draft
+    """.trimIndent()
+
+    private fun suggestPrompt(dialog: String): String = """
+        根据下面的对话，给「我」写三条可以发出去的短回复。每条单独一行，不要编号，不要解释。
+
+        $dialog
     """.trimIndent()
 
     private fun dir(ctx: Context) = File(ctx.filesDir, "gemma3").apply { mkdirs() }

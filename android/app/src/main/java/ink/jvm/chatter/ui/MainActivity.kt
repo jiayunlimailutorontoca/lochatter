@@ -363,7 +363,7 @@ class MainActivity : FragmentActivity() {
 }
 
 /** Which full-screen page is on top of the chat. */
-private enum class Page { HOME, CHAT, SETTINGS, BOT, GALLERY, FAVORITES, ANNIVERSARIES, LOCATION_VIEW, LOCATION_PICK, FILE, PROFILE, PEER_PROFILE, ALBUM }
+private enum class Page { HOME, CHAT, SETTINGS, BOT, GALLERY, FAVORITES, ANNIVERSARIES, LOCATION_VIEW, LOCATION_PICK, FILE, PROFILE, PEER_PROFILE, ALBUM, CALL_NOTES }
 
 @Composable
 private fun Root(repo: ChatRepository, calls: CallManager, onCollapse: () -> Boolean, onUnlock: () -> Unit) {
@@ -463,16 +463,15 @@ private fun Root(repo: ChatRepository, calls: CallManager, onCollapse: () -> Boo
             dismissButton = { androidx.compose.material3.TextButton(onClick = { crashNotice = false; ink.jvm.chatter.util.Diag.clearCrashes(ctx) }) { androidx.compose.material3.Text("忽略") } },
         )
     }
-    val pendingSummary by calls.pendingSummary.collectAsStateWithLifecycle()
-    if (callState == CallManager.State.Idle && pendingSummary != null) {
-        CallSummaryDialog(
-            transcript = pendingSummary!!,
-            onDrop = { calls.discardSummary() },
-            onSend = { text ->
-                repo.sendText("通话纪要\n$text")
-                calls.discardSummary()
-            },
-        )
+    var noteFocus by remember { mutableStateOf<String?>(null) }
+    val pendingNote by ink.jvm.chatter.media.CallNotes.pendingId.collectAsStateWithLifecycle()
+    LaunchedEffect(callState, locked, loggedIn, pendingNote) {
+        if (!loggedIn || (locked && repo.prefs.appLock)) return@LaunchedEffect
+        if (callState != CallManager.State.Idle) return@LaunchedEffect
+        val id = pendingNote ?: return@LaunchedEffect
+        ink.jvm.chatter.media.CallNotes.pendingId.value = null
+        noteFocus = id
+        open(Page.CALL_NOTES)
     }
     val fullCall = callState != CallManager.State.Idle && (inPip || !minimized)
     androidx.activity.compose.BackHandler(enabled = (fullCall && !inPip) || page != Page.HOME) {
@@ -494,7 +493,16 @@ private fun Root(repo: ChatRepository, calls: CallManager, onCollapse: () -> Boo
             chip { goBack() }
         }
         page == Page.SETTINGS -> Box(Modifier.fillMaxSize()) {
-            SettingsScreen(repo, onBack = { goBack() }, onFontScale = { MainActivity.fontScale.value = it })
+            SettingsScreen(
+                repo,
+                onBack = { goBack() },
+                onFontScale = { MainActivity.fontScale.value = it },
+                onOpenNotes = { noteFocus = null; open(Page.CALL_NOTES) },
+            )
+            chip { goBack() }
+        }
+        page == Page.CALL_NOTES -> Box(Modifier.fillMaxSize()) {
+            CallNotesScreen(repo, startId = noteFocus, onBack = { goBack() })
             chip { goBack() }
         }
         page == Page.GALLERY -> Box(Modifier.fillMaxSize()) {
@@ -612,36 +620,3 @@ private fun GalleryPage(repo: ChatRepository, onBack: () -> Unit, onJump: (Strin
     video?.let { VideoPlayerDialog(repo, it, onClose = { video = null }) }
 }
 
-@Composable
-private fun CallSummaryDialog(transcript: String, onDrop: () -> Unit, onSend: (String) -> Unit) {
-    val ctx = LocalContext.current
-    var body by remember(transcript) { mutableStateOf<String?>(null) }
-    var error by remember(transcript) { mutableStateOf<String?>(null) }
-    LaunchedEffect(transcript) {
-        runCatching { ink.jvm.chatter.media.LocalSummary.summarize(ctx, transcript) }
-            .onSuccess { body = it }
-            .onFailure { error = it.message ?: "整理失败" }
-    }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDrop,
-        title = { androidx.compose.material3.Text("通话纪要") },
-        text = {
-            androidx.compose.material3.Text(
-                when {
-                    error != null -> error ?: "整理失败"
-                    body == null -> "正在这台手机上整理，不会上传。"
-                    else -> body ?: ""
-                },
-            )
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(
-                onClick = { val text = body; if (!text.isNullOrBlank()) onSend(text) },
-                enabled = !body.isNullOrBlank(),
-            ) { androidx.compose.material3.Text("发到对话") }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDrop) { androidx.compose.material3.Text("丢掉") }
-        },
-    )
-}

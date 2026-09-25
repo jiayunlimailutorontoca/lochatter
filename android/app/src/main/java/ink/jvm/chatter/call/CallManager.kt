@@ -60,8 +60,8 @@ import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
 import org.webrtc.audio.CaptionGate
 import org.webrtc.audio.JavaAudioDeviceModule
+import ink.jvm.chatter.media.CallNotes
 import ink.jvm.chatter.media.LocalStt
-import ink.jvm.chatter.media.LocalSummary
 import java.util.ArrayDeque
 import java.util.UUID
 
@@ -102,11 +102,6 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     val localCaptions = MutableStateFlow<List<String>>(emptyList())
     /** Set when the on-device recognizer is not on disk. Cloud transcription is not used. */
     val localCaptionHint = MutableStateFlow<String?>(null)
-    /**
-     * Transcript of this phone's captions, kept until the user drops or sends the summary.
-     * Null unless the call was answered, the setting is on, and the model is already on disk.
-     */
-    val pendingSummary = MutableStateFlow<String?>(null)
     /** Outputs the user can pick from right now (empty outside a call). */
     val audioDevices: StateFlow<List<AudioDevice>> get() = audio.devices
     /** Where call audio is going. */
@@ -176,7 +171,8 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     /** True once this call has asked the model to load. The copy stays off until that finishes. */
     private var captionArmed = false
     private val transcriptLock = Any()
-    private val transcript = StringBuilder()
+    private val captionLines = ArrayDeque<CallNotes.Line>()
+    private var captionTrimmed = false
     private var lastLost = 0L
     private var lastRecv = 0L
     private var lastSent = 0L
@@ -191,10 +187,6 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     // ---- user actions ----
 
     /** Assistant calls are voice only. SDP and ICE go out in the clear; see [signal]. */
-    fun discardSummary() {
-        pendingSummary.value = null
-    }
-
     fun start(withVideo: Boolean, toBot: Boolean = false) {
         if (state.value != State.Idle) return
         if (toBot && withVideo) return
@@ -838,16 +830,18 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         stopRingback()
         timeoutJob?.cancel()
         iceJob?.cancel()
-        val note = transcriptForSummary()
-        val wantSummary = answered && !withBot.value && note.isNotEmpty() &&
-            repo.prefs.callSummary && LocalSummary.ready(app)
+        val lines = synchronized(transcriptLock) { captionLines.toList() }
+        val trimmed = captionTrimmed
+        val noteVideo = video
+        val noteSeconds = if (answered && callStart > 0) (System.currentTimeMillis() - callStart) / 1000 else 0L
+        val keepNote = answered && !withBot.value && lines.isNotEmpty()
         if (notifyPeer) callId?.let { signal(CallHangup(it, reason)) }
         if (answered) beep(ToneGenerator.TONE_PROP_NACK, 250)
         logCall(reason)
-        if (answered && callStart > 0) runCatching { repo.recordCall(video, (System.currentTimeMillis() - callStart) / 1000, totalBytes) }
+        if (answered && callStart > 0) runCatching { repo.recordCall(video, noteSeconds, totalBytes) }
         val bot = withBot.value
         teardown()
-        if (wantSummary) pendingSummary.value = note
+        if (keepNote) CallNotes.stash(app, noteVideo, noteSeconds, lines, trimmed)
         captions.value = CallCaptions.close(captions.value)
         state.value = State.Ended(reason, video)
         endedJob?.cancel()
@@ -925,7 +919,10 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         }
         localCaptions.value = emptyList()
         localCaptionHint.value = null
-        synchronized(transcriptLock) { transcript.setLength(0) }
+        synchronized(transcriptLock) {
+            captionLines.clear()
+            captionTrimmed = false
+        }
         whiteboard.detach()
         whiteboard.reset()
         val oldDc = dataChannel
@@ -1089,12 +1086,6 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         override fun onSetFailure(error: String?) { Log.e(TAG, "$tag set failed: $error") }
     }
 
-    private fun transcriptForSummary(): String {
-        val raw = synchronized(transcriptLock) { transcript.toString().trim() }
-        if (raw.length <= SUMMARY_CHARS) return raw
-        return "（前面的话已略）\n" + raw.takeLast(SUMMARY_CHARS)
-    }
-
     /**
      * Media is already up. Load the on-device model, then allow the record thread to copy.
      * Does not download. A missing model leaves the call up and the copy off.
@@ -1207,15 +1198,18 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         if (line.isEmpty() || localCaptions.value.lastOrNull() == line) return
         localCaptions.value = (localCaptions.value + line).takeLast(6)
         synchronized(transcriptLock) {
-            if (transcript.isNotEmpty()) transcript.append('\n')
-            transcript.append(line)
-            if (transcript.length > TRANSCRIPT_MAX) {
-                val extra = transcript.length - TRANSCRIPT_MAX
-                val nl = transcript.indexOf('\n', extra)
-                val cut = if (nl < 0) extra else nl + 1
-                transcript.delete(0, cut.coerceAtMost(transcript.length))
+            captionLines.addLast(CallNotes.Line(System.currentTimeMillis(), line))
+            while (captionChars() > TRANSCRIPT_MAX && captionLines.size > 1) {
+                captionLines.removeFirst()
+                captionTrimmed = true
             }
         }
+    }
+
+    private fun captionChars(): Int {
+        var n = 0
+        for (line in captionLines) n += line.text.length + 1
+        return n
     }
 
     /** Little-endian 16-bit interleaved PCM → 16 kHz mono float. */
@@ -1254,6 +1248,5 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         const val MAX_RECOVERIES = 2
         const val STT_SAMPLES = 16_000 * 3
         const val TRANSCRIPT_MAX = 4000
-        const val SUMMARY_CHARS = 600
     }
 }
