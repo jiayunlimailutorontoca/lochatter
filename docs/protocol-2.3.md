@@ -45,3 +45,11 @@ Android `versionCode` 为 42，`versionName` 为 `2.3.2`。
 Android `versionCode` 为 43，`versionName` 为 `2.3.3`。
 
 通话字幕仍只从本机麦克风生成，不得发送。读取录音缓冲区时不得调用 `ByteBuffer.array()`。该调用会在 Android 16 上令进程退出。直连重试与纪要下载地址保持 2.3.2 的行为。
+
+## 2.3.4
+
+2.3.4 仅修订 Android 客户端。不新增帧，不新增 `kind`，数据库 schema 仍为 9。服务端 `Version` 仍为 `2.3.0`。
+
+Android `versionCode` 为 44，`versionName` 为 `2.3.4`。
+
+通话字幕仍只从本机麦克风生成，不得发送。`AudioRecord.read` 会推进缓冲区位置。每次读取前须将位置回到起点。若下一次读取从缓冲区末尾开始，进程会退出。拷贝录音时不得修改 WebRTC 正在使用的缓冲区位置与界限，也不得调用 `ByteBuffer.array()`。本机硬件回声消除与硬件降噪必须关闭，由 WebRTC 软件处理。华为 Android 16 在硬件效果开启且开始录音时会使进程退出。

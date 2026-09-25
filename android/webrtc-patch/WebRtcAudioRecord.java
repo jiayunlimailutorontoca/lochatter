@@ -135,6 +135,9 @@ class WebRtcAudioRecord {
         audioTimestamp = new AudioTimestamp();
       }
       while (keepAlive) {
+        // read() writes at position and then advances it. The next read must
+        // start at 0, or it writes past this direct buffer and aborts the process.
+        byteBuffer.clear();
         int bytesRead = audioRecord.read(byteBuffer, byteBuffer.capacity());
         if (bytesRead == byteBuffer.capacity()) {
           if (microphoneMute) {
@@ -155,24 +158,18 @@ class WebRtcAudioRecord {
             nativeDataIsRecorded(nativeAudioRecord, bytesRead, captureTimeNs);
           }
           if (audioSamplesReadyCallback != null) {
-            // Direct buffers do not have a usable backing array. ByteBuffer.array() aborts
-            // the process on Android 16 as soon as a call is answered. Copy from position 0
-            // and restore the buffer so the next native read is unchanged.
-            int savedPos = byteBuffer.position();
-            int savedLimit = byteBuffer.limit();
-            byte[] data = new byte[byteBuffer.capacity()];
+            // duplicate() has its own position. The buffer native code still holds
+            // is left alone. ByteBuffer.array() aborts the process on Android 16.
+            ByteBuffer dup = byteBuffer.duplicate();
+            dup.clear();
+            byte[] data = new byte[dup.capacity()];
             try {
-              byteBuffer.position(0);
-              byteBuffer.limit(byteBuffer.capacity());
-              byteBuffer.get(data);
+              dup.get(data);
               audioSamplesReadyCallback.onWebRtcAudioRecordSamplesReady(
                   new JavaAudioDeviceModule.AudioSamples(audioRecord.getAudioFormat(),
                       audioRecord.getChannelCount(), audioRecord.getSampleRate(), data));
             } catch (Throwable t) {
               Logging.e(TAG, "SamplesReadyCallback failed: " + t);
-            } finally {
-              byteBuffer.limit(savedLimit);
-              byteBuffer.position(savedPos);
             }
           }
         } else {

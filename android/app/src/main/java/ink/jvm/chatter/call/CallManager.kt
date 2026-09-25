@@ -469,9 +469,11 @@ class CallManager(private val app: Application, private val repo: ChatRepository
                 .setFieldTrials("WebRTC-HideLocalIpsWithMdns/Disabled/")
                 .createInitializationOptions()
         )
+        // Hardware AEC/NS abort the process on Huawei Android 16 when recording starts.
+        // WebRTC's software processor still runs. The samples callback feeds call captions.
         val adm = JavaAudioDeviceModule.builder(app)
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
+            .setUseHardwareAcousticEchoCanceler(false)
+            .setUseHardwareNoiseSuppressor(false)
             .setSamplesReadyCallback { samples -> onMicSamples(samples) }
             .createAudioDeviceModule()
         val f = PeerConnectionFactory.builder()
@@ -484,6 +486,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     }
 
     private fun setupPeerConnection() {
+        Diag.log(TAG, "setup begin caller=$isCaller")
         val f = ensureFactory()
         val servers = ArrayList<PeerConnection.IceServer>()
         val t = turn
@@ -508,6 +511,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
             iceCandidatePoolSize = 1
         }
         val p = f.createPeerConnection(cfg, observer) ?: throw IllegalStateException("createPeerConnection returned null")
+        Diag.log(TAG, "setup pc")
         pc = p
         remoteSet = false
         pendingIce.clear()
@@ -535,6 +539,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         repo.voice.inCall = true
         audio.start(preferSpeaker = video)
         applyProximity()
+        Diag.log(TAG, "setup audio started")
     }
 
     /** Camera capture + local track. Started as soon as a video call begins so the preview shows while ringing. */
@@ -662,10 +667,12 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     }
 
     private fun createOffer(iceRestart: Boolean = false) {
+        Diag.log(TAG, "create offer restart=$iceRestart")
         val p = pc ?: return
         val constraints = MediaConstraints()
         if (iceRestart) constraints.mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
         p.createOffer(Sdp(if (iceRestart) "iceRestart" else "createOffer", onCreate = { desc ->
+            Diag.log(TAG, "offer created restart=$iceRestart")
             p.setLocalDescription(Sdp("setLocalOffer"), desc)
             callId?.let { signal(CallSdp(it, "offer", desc.description)) }
         }), constraints)

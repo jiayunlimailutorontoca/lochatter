@@ -110,11 +110,20 @@ object Diag {
         ctx.startActivity(Intent.createChooser(send, "导出诊断信息").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    /** Our own process log; readable without any permission. */
-    private fun logcat(): String = runCatching {
-        val p = ProcessBuilder("logcat", "-d", "-v", "time", "-t", "1500", "--pid=${android.os.Process.myPid()}").redirectErrorStream(true).start()
-        val text = p.inputStream.bufferedReader().readText()
-        p.waitFor()
-        text
-    }.getOrElse { "logcat unavailable: ${it.message}" }
+    /** Our own process log, plus the crash buffer from the previous process. */
+    private fun logcat(): String {
+        val own = runCatching {
+            val p = ProcessBuilder("logcat", "-d", "-v", "time", "-t", "800", "--pid=${android.os.Process.myPid()}").redirectErrorStream(true).start()
+            val text = p.inputStream.bufferedReader().readText()
+            p.waitFor()
+            text
+        }.getOrElse { "logcat unavailable: ${it.message}" }
+        val crashes = runCatching {
+            val p = ProcessBuilder("logcat", "-b", "crash", "-d", "-v", "time", "-t", "200").redirectErrorStream(true).start()
+            val text = p.inputStream.bufferedReader().readText()
+            p.waitFor()
+            text
+        }.getOrElse { "crash log unavailable: ${it.message}" }
+        return own + "\n===== crash buffer =====\n" + crashes
+    }
 }
