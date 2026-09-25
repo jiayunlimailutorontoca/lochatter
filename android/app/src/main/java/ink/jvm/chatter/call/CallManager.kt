@@ -476,7 +476,14 @@ class CallManager(private val app: Application, private val repo: ChatRepository
             .setUseHardwareNoiseSuppressor(false)
             .setSamplesReadyCallback { samples -> onMicSamples(samples) }
             .createAudioDeviceModule()
+        // Huawei Android 16 hands this monitor a null Network. WebRTC then
+        // calls a method on it from network_thread and the process dies.
+        // Interface addresses still come from the device, so a LAN path remains.
+        val options = PeerConnectionFactory.Options()
+        options.disableNetworkMonitor = true
+        Diag.log(TAG, "network monitor off")
         val f = PeerConnectionFactory.builder()
+            .setOptions(options)
             .setAudioDeviceModule(adm)
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
@@ -507,8 +514,9 @@ class CallManager(private val app: Application, private val repo: ChatRepository
             // Keep checking pairs that lost nomination, so a later direct path can take over.
             iceBackupCandidatePairPingInterval = 1000
             stunCandidateKeepaliveIntervalMs = 2000
-            surfaceIceCandidatesOnIceTransportTypeChanged = true
-            iceCandidatePoolSize = 1
+            // Do not pre-gather, and do not surface candidates on a transport-type
+            // change. Both run while the candidate list is still empty; the native
+            // code then calls a method on the missing last element and aborts.
         }
         val p = f.createPeerConnection(cfg, observer) ?: throw IllegalStateException("createPeerConnection returned null")
         Diag.log(TAG, "setup pc")

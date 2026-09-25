@@ -2,7 +2,7 @@
 
 lochatter is an instant-messaging system for two users. It includes an Android client, a .NET server, an optional web client, and an optional Hermes assistant plugin. Text, images, voice messages, and files are end-to-end encrypted on the client by default. The server delivers ciphertext and does not read message bodies.
 
-Android 2.3.4 (`versionCode` 44). Server 2.3.0. Application id `ink.jvm.chatter`, `arm64-v8a` only. License [MIT](LICENSE), copyright 2026 laosaonan2.
+Android 2.3.5 (`versionCode` 45). Server 2.3.0. Application id `ink.jvm.chatter`, `arm64-v8a` only. License [MIT](LICENSE), copyright 2026 laosaonan2.
 
 The normative document is the Chinese README: [README.md](README.md).
 
@@ -21,6 +21,8 @@ The normative document is the Chinese README: [README.md](README.md).
 2.3.3 does not change the protocol or the server. Android `versionCode` is 43. Call captions are still produced on the phone from its own microphone and are not sent. The microphone copy no longer calls `ByteBuffer.array()`, which aborted the process on Android 16.
 
 2.3.4 does not change the protocol or the server. Android `versionCode` is 44. Call captions stay. Each microphone read rewinds the buffer first, and the copy does not change the buffer WebRTC is using. Hardware echo cancellation and noise suppression are off; WebRTC's software processor is used instead, so recording can start on Huawei Android 16.
+
+2.3.5 does not change the protocol or the server. Android `versionCode` is 45. Call captions stay. A few milliseconds after the local description is set, WebRTC's network thread calls a method on a null object and the process exits. The Android network monitor stays off. Candidates are not gathered ahead of time, and they are not surfaced again when the transport type changes. Continual gathering and backup-path checks stay.
 
 A deployment has at most two human accounts, plus an optional assistant (user id 0). The assistant receives only messages explicitly addressed to it, and only in plaintext. Frames are JSON over a WebSocket. After a disconnect the client resumes by sequence number and retries an unacknowledged send with the original id.
 

@@ -53,3 +53,17 @@ Android `versionCode` 为 43，`versionName` 为 `2.3.3`。
 Android `versionCode` 为 44，`versionName` 为 `2.3.4`。
 
 通话字幕仍只从本机麦克风生成，不得发送。`AudioRecord.read` 会推进缓冲区位置。每次读取前须将位置回到起点。若下一次读取从缓冲区末尾开始，进程会退出。拷贝录音时不得修改 WebRTC 正在使用的缓冲区位置与界限，也不得调用 `ByteBuffer.array()`。本机硬件回声消除与硬件降噪必须关闭，由 WebRTC 软件处理。华为 Android 16 在硬件效果开启且开始录音时会使进程退出。
+
+## 2.3.5
+
+2.3.5 仅修订 Android 客户端。不新增帧，不新增 `kind`，数据库 schema 仍为 9。服务端 `Version` 仍为 `2.3.0`。
+
+Android `versionCode` 为 45，`versionName` 为 `2.3.5`。
+
+通话字幕仍只从本机麦克风生成，不得发送。录音读取规则与 2.3.4 相同。
+
+设置本机描述后，WebRTC 的 `network_thread` 会在候选列表仍为空时对末项做虚调用，进程因此退出。该调用不是释放顺序问题，安装包中也只有一份 `libjingle_peerconnection_so.so`。
+
+本机 `NetworkMonitor` 必须关闭。华为 Android 16 会向它提供空的 `Network`。关闭后仍从本机网卡取得地址，同一局域网的直连地址仍然可用。
+
+`iceCandidatePoolSize` 必须为 0，不得预收集。`surfaceIceCandidatesOnIceTransportTypeChanged` 必须关闭。持续收集与备用候选对探测保持 2.3.0 的行为。
