@@ -157,7 +157,7 @@ class WebRtcAudioRecord {
             }
             nativeDataIsRecorded(nativeAudioRecord, bytesRead, captureTimeNs);
           }
-          if (audioSamplesReadyCallback != null) {
+          if (audioSamplesReadyCallback != null && byteBuffer != null && audioRecord != null) {
             // duplicate() has its own position. The buffer native code still holds
             // is left alone. ByteBuffer.array() aborts the process on Android 16.
             ByteBuffer dup = byteBuffer.duplicate();

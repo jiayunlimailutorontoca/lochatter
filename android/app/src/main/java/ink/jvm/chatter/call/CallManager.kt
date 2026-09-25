@@ -122,6 +122,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     /** Shared drawing board over the call's data channel. */
     val whiteboard = Whiteboard()
     private var dataChannel: DataChannel? = null
+    private var whiteboardOffered = false
     private var totalBytes = 0L
     /** We are sending our screen instead of the camera (or as a new video track in a voice call). */
     val screenSharing = MutableStateFlow(false)
@@ -476,14 +477,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
             .setUseHardwareNoiseSuppressor(false)
             .setSamplesReadyCallback { samples -> onMicSamples(samples) }
             .createAudioDeviceModule()
-        // Huawei Android 16 hands this monitor a null Network. WebRTC then
-        // calls a method on it from network_thread and the process dies.
-        // Interface addresses still come from the device, so a LAN path remains.
-        val options = PeerConnectionFactory.Options()
-        options.disableNetworkMonitor = true
-        Diag.log(TAG, "network monitor off")
         val f = PeerConnectionFactory.builder()
-            .setOptions(options)
             .setAudioDeviceModule(adm)
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
@@ -511,12 +505,9 @@ class CallManager(private val app: Application, private val repo: ChatRepository
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
             iceTransportsType = PeerConnection.IceTransportsType.ALL
-            // Keep checking pairs that lost nomination, so a later direct path can take over.
-            iceBackupCandidatePairPingInterval = 1000
-            stunCandidateKeepaliveIntervalMs = 2000
-            // Do not pre-gather, and do not surface candidates on a transport-type
-            // change. Both run while the candidate list is still empty; the native
-            // code then calls a method on the missing last element and aborts.
+            // Do not set a backup-ping or STUN keepalive interval. At this moment the
+            // connection list is empty, and this library calls a method on the missing
+            // last item from network_thread. Direct retries are the later ICE restart.
         }
         val p = f.createPeerConnection(cfg, observer) ?: throw IllegalStateException("createPeerConnection returned null")
         Diag.log(TAG, "setup pc")
@@ -533,16 +524,9 @@ class CallManager(private val app: Application, private val repo: ChatRepository
 
         if (video) attachVideo(f, p)
 
-        // The caller opens the whiteboard channel before the offer so it rides along in the SDP; the callee
-        // receives it through onDataChannel.
-        if (isCaller) {
-            runCatching {
-                val dc = p.createDataChannel(Whiteboard.CHANNEL_LABEL, DataChannel.Init().apply { ordered = true })
-                dataChannel = dc
-                whiteboard.attach(dc)
-            }.onFailure { Log.w(TAG, "data channel: ${it.message}") }
-        }
-
+        // The whiteboard channel is opened only after the first local description
+        // has been applied. Creating it earlier makes setLocalDescription use a
+        // transport that does not exist yet.
         repo.voice.stop()
         repo.voice.inCall = true
         audio.start(preferSpeaker = video)
@@ -681,9 +665,24 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         if (iceRestart) constraints.mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
         p.createOffer(Sdp(if (iceRestart) "iceRestart" else "createOffer", onCreate = { desc ->
             Diag.log(TAG, "offer created restart=$iceRestart")
-            p.setLocalDescription(Sdp("setLocalOffer"), desc)
+            p.setLocalDescription(Sdp("setLocalOffer", onSet = {
+                Diag.log(TAG, "local offer set restart=$iceRestart")
+            }), desc)
             callId?.let { signal(CallSdp(it, "offer", desc.description)) }
         }), constraints)
+    }
+
+    /** Caller only, after ICE is up, so the transport exists. One follow-up offer carries the channel. */
+    private fun openWhiteboard(p: PeerConnection) {
+        if (!isCaller || dataChannel != null || whiteboardOffered) return
+        val dc = runCatching {
+            p.createDataChannel(Whiteboard.CHANNEL_LABEL, DataChannel.Init().apply { ordered = true })
+        }.onFailure { Log.w(TAG, "data channel: ${it.message}") }.getOrNull() ?: return
+        dataChannel = dc
+        whiteboard.attach(dc)
+        whiteboardOffered = true
+        Diag.log(TAG, "whiteboard opened")
+        createOffer(iceRestart = false)
     }
 
     private fun restartIce(why: String) {
@@ -797,6 +796,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         }
         callStart = System.currentTimeMillis()
         state.value = s.copy(connected = true, startedAt = callStart)
+        pc?.let { openWhiteboard(it) }
         beep(ToneGenerator.TONE_PROP_ACK, 150)
         startStats()
         ensurePunchLoop()
@@ -933,6 +933,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         whiteboard.reset()
         val oldDc = dataChannel
         dataChannel = null
+        whiteboardOffered = false
 
         releaseProximity()
         audio.stop()

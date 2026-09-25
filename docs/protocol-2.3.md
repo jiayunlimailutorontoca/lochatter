@@ -67,3 +67,17 @@ Android `versionCode` 为 45，`versionName` 为 `2.3.5`。
 本机 `NetworkMonitor` 必须关闭。华为 Android 16 会向它提供空的 `Network`。关闭后仍从本机网卡取得地址，同一局域网的直连地址仍然可用。
 
 `iceCandidatePoolSize` 必须为 0，不得预收集。`surfaceIceCandidatesOnIceTransportTypeChanged` 必须关闭。持续收集与备用候选对探测保持 2.3.0 的行为。
+
+## 2.3.6
+
+2.3.6 仅修订 Android 客户端。不新增帧，不新增 `kind`，数据库 schema 仍为 9。服务端 `Version` 仍为 `2.3.0`。
+
+Android `versionCode` 为 46，`versionName` 为 `2.3.6`。
+
+通话字幕仍只从本机麦克风生成，不得发送。录音读取规则与 2.3.4 相同。拷贝前须确认缓冲区与 `AudioRecord` 均非空。
+
+2.3.5 在设置本机描述后仍于 `network_thread` 的同一地址退出。关闭网络监视器并不能避免该调用。
+
+不得设置 `iceBackupCandidatePairPingInterval`。不得设置 `stunCandidateKeepaliveIntervalMs`。这两项会在连接对列表仍为空时，令本库对空对象做虚调用。直连重试仍由接通之后的 ICE 重协商完成。
+
+白板数据通道不得在首次 `setLocalDescription` 之前创建。主叫须等 ICE 接通后再创建，并另发一次不含 ICE 重启的 offer。被叫仍通过 `onDataChannel` 接收。本机网络监视器保持开启。
