@@ -2,7 +2,7 @@
 
 lochatter 是一套供两名用户使用的即时通讯系统，包含 Android 客户端、.NET 服务端、可选 Web 客户端，以及可选的 Hermes 助手插件。文本、图像、语音消息与文件默认在客户端完成端到端加密。服务端负责投递密文、保存密文媒体，以及转发通话信令，不解析消息正文。
 
-当前版本：Android 2.3.2（`versionCode` 42），服务端 2.3.0。Android 包名 `ink.jvm.chatter`，安装包仅包含 `arm64-v8a`。许可证 [MIT](LICENSE)，版权所有 2026 laosaonan2。
+当前版本：Android 2.3.3（`versionCode` 43），服务端 2.3.0。Android 包名 `ink.jvm.chatter`，安装包仅包含 `arm64-v8a`。许可证 [MIT](LICENSE)，版权所有 2026 laosaonan2。
 
 [English](README.en.md)
 
@@ -17,6 +17,8 @@ lochatter 是一套供两名用户使用的即时通讯系统，包含 Android �
 2.3.1 不修改协议与服务端。Android `versionCode` 为 41。纪要模型在设置中单独下载。打开「挂断后整理纪要」不开始下载。模型未在本机就绪时，该开关保持关闭。
 
 2.3.2 不修改协议与服务端。Android `versionCode` 为 42。纪要模型改从魔搭社区下载，不再使用需要许可令牌的 Hugging Face 地址。模型文件仍为 Gemma 3 1B int4。
+
+2.3.3 不修改协议与服务端。Android `versionCode` 为 43。接通后仍从本机麦克风生成通话字幕，且不发送。拷贝录音数据时不再调用会在 Android 16 上令进程退出的 `ByteBuffer.array()`。
 
 ## 1. 客户端与账号
 

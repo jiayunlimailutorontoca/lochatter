@@ -234,8 +234,8 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         state.value = State.Active(s.callId, s.video, connected = false, startedAt = 0)
         try {
             setupPeerConnection()
-        } catch (e: Exception) {
-            Log.e(TAG, "setup failed", e)
+        } catch (e: Throwable) {
+            Diag.warn(TAG, "setup failed", e)
             signal(CallReject(s.callId, "failed"))
             finish("failed", notifyPeer = false)
             return
@@ -433,8 +433,8 @@ class CallManager(private val app: Application, private val repo: ChatRepository
                 try {
                     setupPeerConnection()
                     createOffer()
-                } catch (e: Exception) {
-                    Log.e(TAG, "setup failed", e)
+                } catch (e: Throwable) {
+                    Diag.warn(TAG, "setup failed", e)
                     finish("failed", notifyPeer = true)
                 }
                 armTimeout(CONNECT_MS) { if ((state.value as? State.Active)?.connected == false) finish("failed", notifyPeer = true) }
@@ -1084,10 +1084,19 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     }
 
     private fun onMicSamples(samples: JavaAudioDeviceModule.AudioSamples) {
+        try {
+            onMicSamplesUnchecked(samples)
+        } catch (e: Throwable) {
+            Diag.warn(TAG, "mic samples", e)
+        }
+    }
+
+    private fun onMicSamplesUnchecked(samples: JavaAudioDeviceModule.AudioSamples) {
         if (withBot.value || muted.value) return
         val active = state.value as? State.Active ?: return
         if (!active.connected) return
-        val copy = samples.data.copyOf()
+        val data = samples.data ?: return
+        val copy = data.copyOf()
         synchronized(rawQueue) {
             rawQueue.add(RawPcm(copy, samples.sampleRate, samples.channelCount))
             while (rawQueue.size > 50) rawQueue.removeFirst()

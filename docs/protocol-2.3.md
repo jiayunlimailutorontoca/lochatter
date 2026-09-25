@@ -37,3 +37,11 @@ Android `versionCode` 为 41，`versionName` 为 `2.3.1`。
 Android `versionCode` 为 42，`versionName` 为 `2.3.2`。
 
 纪要模型文件仍为 Gemma 3 1B int4。下载地址改为魔搭社区，不得再使用需要许可令牌的 Hugging Face 地址。
+
+## 2.3.3
+
+2.3.3 仅修订 Android 客户端。不新增帧，不新增 `kind`，数据库 schema 仍为 9。服务端 `Version` 仍为 `2.3.0`。
+
+Android `versionCode` 为 43，`versionName` 为 `2.3.3`。
+
+通话字幕仍只从本机麦克风生成，不得发送。读取录音缓冲区时不得调用 `ByteBuffer.array()`。该调用会在 Android 16 上令进程退出。直连重试与纪要下载地址保持 2.3.2 的行为。

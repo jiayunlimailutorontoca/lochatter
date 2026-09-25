@@ -39,8 +39,8 @@ android {
         applicationId = "ink.jvm.chatter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 42
-        versionName = "2.3.2"
+        versionCode = 43
+        versionName = "2.3.3"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
 
@@ -91,6 +91,35 @@ kotlin {
     compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
 
+val webrtcOriginal = configurations.create("webrtcOriginal") {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+}
+val patchedWebrtcAar = layout.buildDirectory.file("webrtc-patch/stream-webrtc-android-1.3.10.aar")
+val patchWebRtc = tasks.register("patchWebRtc") {
+    inputs.files(webrtcOriginal)
+    inputs.file(rootProject.layout.projectDirectory.file("webrtc-patch/WebRtcAudioRecord.java"))
+    inputs.file(rootProject.layout.projectDirectory.file("webrtc-patch/patch.ps1"))
+    outputs.file(patchedWebrtcAar)
+    doLast {
+        val aar = webrtcOriginal.files.first { it.extension == "aar" }
+        val out = patchedWebrtcAar.get().asFile
+        exec {
+            environment(
+                "JAVA_HOME",
+                System.getenv("JAVA_HOME") ?: "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.20.101-hotspot",
+            )
+            commandLine(
+                "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                rootProject.layout.projectDirectory.file("webrtc-patch/patch.ps1").asFile.absolutePath,
+                "-Aar", aar.absolutePath,
+                "-Source", rootProject.layout.projectDirectory.file("webrtc-patch/WebRtcAudioRecord.java").asFile.absolutePath,
+                "-Out", out.absolutePath,
+            )
+        }
+    }
+}
+
 dependencies {
     val bom = platform("androidx.compose:compose-bom:2025.05.01")
     implementation(bom)
@@ -111,8 +140,11 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    add("webrtcOriginal", "io.getstream:stream-webrtc-android:1.3.10")
     testImplementation("junit:junit:4.13.2")
-    implementation("io.getstream:stream-webrtc-android:1.3.10")
+    // Same WebRTC binary as 1.3.10, with WebRtcAudioRecord patched so call captions can
+    // copy the direct microphone buffer. ByteBuffer.array() aborts the process on Android 16.
+    implementation(files(patchWebRtc.map { patchedWebrtcAar.get().asFile }))
     // Prebuilt sherpa-onnx Android AAR (Kotlin API + libsherpa-onnx-jni + onnxruntime), v1.13.8.
     implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
     // On-device summary model (Gemma 3 1B). No NDK in this tree; MediaPipe runs the .task on CPU.
