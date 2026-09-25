@@ -364,7 +364,7 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                     summaryStatus ?: if (summaryReady) {
                         "Gemma 3 1B，只在这台手机上整理，不上传"
                     } else {
-                        "约 550 MB。点这里才下载。没下好之前，打开下面的开关也不会整理，也不会开始下载。"
+                        "约 530 MB。从魔搭下载，国内可以直接下。没下好之前，打开下面的开关也不会整理，也不会开始下载。"
                     },
                 ) {
                     if (!summaryReady && summaryStatus == null) {

@@ -2,7 +2,7 @@
 
 lochatter is an instant-messaging system for two users. It includes an Android client, a .NET server, an optional web client, and an optional Hermes assistant plugin. Text, images, voice messages, and files are end-to-end encrypted on the client by default. The server delivers ciphertext and does not read message bodies.
 
-Android 2.3.1 (`versionCode` 41). Server 2.3.0. Application id `ink.jvm.chatter`, `arm64-v8a` only. License [MIT](LICENSE), copyright 2026 laosaonan2.
+Android 2.3.2 (`versionCode` 42). Server 2.3.0. Application id `ink.jvm.chatter`, `arm64-v8a` only. License [MIT](LICENSE), copyright 2026 laosaonan2.
 
 The normative document is the Chinese README: [README.md](README.md).
 
@@ -15,6 +15,8 @@ The normative document is the Chinese README: [README.md](README.md).
 2.3.0 adds no message kind and no WebSocket frame. Schema stays 9. Android `versionCode` is 40. The server `Version` is `2.3.0`. A call between the two people connects through relay first. While the media path is still relayed, the caller gathers candidates again about every 20 seconds and switches to a direct path when one succeeds. A failed attempt does not end the call. TCP relay is only a last resort. Call captions are produced on the phone from its own microphone and are not sent. The call summary is off by default. When enabled, an on-device model summarizes only that phone's captions and does not upload them. Assistant calls are unchanged. The web page decrypts audio and video in memory, downloads a file under its decrypted name, and opens images larger. Location, call, and sticker messages stay one line.
 
 2.3.1 does not change the protocol or the server. Android `versionCode` is 41. The summary model is downloaded from its own settings row. Turning on the call summary does not start that download. If the model is not on the phone, the switch stays off.
+
+2.3.2 does not change the protocol or the server. Android `versionCode` is 42. The summary model is downloaded from ModelScope. The Hugging Face address that required a license token is no longer used. The weight file is still Gemma 3 1B int4.
 
 A deployment has at most two human accounts, plus an optional assistant (user id 0). The assistant receives only messages explicitly addressed to it, and only in plaintext. Frames are JSON over a WebSocket. After a disconnect the client resumes by sequence number and retries an unacknowledged send with the original id.
 

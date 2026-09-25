@@ -29,3 +29,11 @@ Android `versionCode` 为 40，`versionName` 为 `2.3.0`。服务端 `Version` �
 Android `versionCode` 为 41，`versionName` 为 `2.3.1`。
 
 纪要模型须由设置中的「下载纪要模型」单独下载。打开「挂断后整理纪要」不得开始下载。模型文件未在本机就绪时，该开关保持关闭。通话进行中不得下载该模型。下载完成不得自动打开该开关。
+
+## 2.3.2
+
+2.3.2 仅修订 Android 客户端。不新增帧，不新增 `kind`，数据库 schema 仍为 9。服务端 `Version` 仍为 `2.3.0`。
+
+Android `versionCode` 为 42，`versionName` 为 `2.3.2`。
+
+纪要模型文件仍为 Gemma 3 1B int4。下载地址改为魔搭社区，不得再使用需要许可令牌的 Hugging Face 地址。

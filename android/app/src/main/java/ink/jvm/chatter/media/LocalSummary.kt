@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * On-device call summary. Gemma 3 1B int4 through MediaPipe, CPU only.
- * The transcript never leaves the phone: the only network use is downloading the weight file.
+ * The weight file is downloaded from ModelScope. The transcript never leaves the phone.
  */
 object LocalSummary {
     private const val FILE_NAME = "gemma3-1b-it-int4.task"
@@ -132,7 +132,7 @@ object LocalSummary {
         try {
             call.execute().use { resp ->
                 if (resp.code == 401 || resp.code == 403) {
-                    throw IOException("下载被拒绝（HTTP ${resp.code}）。模型页面要求先同意许可，这里没有访问令牌")
+                    throw IOException("下载被拒绝（HTTP ${resp.code}）")
                 }
                 if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
                 val body = resp.body ?: throw IOException("空响应")
@@ -165,7 +165,7 @@ object LocalSummary {
     }
 
     private val URLS = listOf(
-        "https://hf-mirror.com/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task",
-        "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task",
+        "https://www.modelscope.cn/api/v1/models/litert-community/Gemma3-1B-IT/repo?Revision=master&FilePath=gemma3-1b-it-int4.task",
+        "https://www.modelscope.cn/models/litert-community/Gemma3-1B-IT/resolve/master/gemma3-1b-it-int4.task",
     )
 }
