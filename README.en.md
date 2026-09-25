@@ -2,7 +2,7 @@
 
 lochatter is an instant-messaging system for two users. It includes an Android client, a .NET server, an optional web client, and an optional Hermes assistant plugin. Text, images, voice messages, and files are end-to-end encrypted on the client by default. The server delivers ciphertext and does not read message bodies.
 
-Android 2.3.6 (`versionCode` 46). Server 2.3.0. Application id `ink.jvm.chatter`, `arm64-v8a` only. License [MIT](LICENSE), copyright 2026 laosaonan2.
+Android 2.3.7 (`versionCode` 47). Server 2.3.0. Application id `ink.jvm.chatter`, `arm64-v8a` only. License [MIT](LICENSE), copyright 2026 laosaonan2.
 
 The normative document is the Chinese README: [README.md](README.md).
 
@@ -25,6 +25,8 @@ The normative document is the Chinese README: [README.md](README.md).
 2.3.5 does not change the protocol or the server. Android `versionCode` is 45. Call captions stay. A few milliseconds after the local description is set, WebRTC's network thread calls a method on a null object and the process exits. The Android network monitor stays off. Candidates are not gathered ahead of time, and they are not surfaced again when the transport type changes. Continual gathering and backup-path checks stay.
 
 2.3.6 does not change the protocol or the server. Android `versionCode` is 46. Call captions stay. 2.3.5 still exited at the same address while setting the local description. The backup-candidate ping interval and the STUN keepalive interval are not set: the connection list is empty then, and this library calls a method on that missing item. The whiteboard data channel is created only after ICE is connected. A later ICE restart still tries a direct path. The Android network monitor stays on.
+
+2.3.7 does not change the protocol or the server. Android `versionCode` is 47. Call setup matches 2.2.0 again: the caller creates the whiteboard channel before the first offer, and a dropped link still restarts the way 2.2.0 did. A human call still connects through the relay first; the caller tries a direct path only after that media path is up. The on-device speech model loads only after both sides have media. Until that load finishes, the record thread does not copy samples. After it finishes, the record thread copies one frame into its own buffer before handing the frame to the send path, and transcription reads only that buffer. A null buffer or `AudioRecord` skips the copy. Hangup closes the copy before the connection is released. Call captions stay on the phone and are not sent.
 
 A deployment has at most two human accounts, plus an optional assistant (user id 0). The assistant receives only messages explicitly addressed to it, and only in plaintext. Frames are JSON over a WebSocket. After a disconnect the client resumes by sequence number and retries an unacknowledged send with the original id.
 

@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Aar,
     [Parameter(Mandatory = $true)][string]$Source,
+    [Parameter(Mandatory = $true)][string]$Gate,
     [Parameter(Mandatory = $true)][string]$Out
 )
 $ErrorActionPreference = "Stop"
@@ -41,9 +42,9 @@ try {
 Get-ChildItem $classesDir -Recurse -Filter "WebRtcAudioRecord*.class" | Remove-Item -Force
 
 $cp = "$androidJar;$classesJar;$($ann.FullName)"
-& $javac --release 17 -encoding UTF-8 -classpath $cp -d $compiled $Source
+& $javac --release 17 -encoding UTF-8 -classpath $cp -d $compiled $Source $Gate
 if ($LASTEXITCODE -ne 0) { throw "javac failed" }
-Copy-Item (Join-Path $compiled "org\webrtc\audio\WebRtcAudioRecord*.class") (Join-Path $classesDir "org\webrtc\audio") -Force
+Copy-Item (Join-Path $compiled "org\webrtc\audio\*.class") (Join-Path $classesDir "org\webrtc\audio") -Force
 
 $newJar = Join-Path $work "classes-new.jar"
 Push-Location $classesDir

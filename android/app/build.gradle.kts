@@ -39,8 +39,8 @@ android {
         applicationId = "ink.jvm.chatter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 46
-        versionName = "2.3.6"
+        versionCode = 47
+        versionName = "2.3.7"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
 
@@ -99,6 +99,7 @@ val patchedWebrtcAar = layout.buildDirectory.file("webrtc-patch/stream-webrtc-an
 val patchWebRtc = tasks.register("patchWebRtc") {
     inputs.files(webrtcOriginal)
     inputs.file(rootProject.layout.projectDirectory.file("webrtc-patch/WebRtcAudioRecord.java"))
+    inputs.file(rootProject.layout.projectDirectory.file("webrtc-patch/CaptionGate.java"))
     inputs.file(rootProject.layout.projectDirectory.file("webrtc-patch/patch.ps1"))
     outputs.file(patchedWebrtcAar)
     doLast {
@@ -114,6 +115,7 @@ val patchWebRtc = tasks.register("patchWebRtc") {
                 rootProject.layout.projectDirectory.file("webrtc-patch/patch.ps1").asFile.absolutePath,
                 "-Aar", aar.absolutePath,
                 "-Source", rootProject.layout.projectDirectory.file("webrtc-patch/WebRtcAudioRecord.java").asFile.absolutePath,
+                "-Gate", rootProject.layout.projectDirectory.file("webrtc-patch/CaptionGate.java").asFile.absolutePath,
                 "-Out", out.absolutePath,
             )
         }

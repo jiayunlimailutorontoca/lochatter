@@ -58,6 +58,7 @@ import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import org.webrtc.audio.CaptionGate
 import org.webrtc.audio.JavaAudioDeviceModule
 import ink.jvm.chatter.media.LocalStt
 import ink.jvm.chatter.media.LocalSummary
@@ -122,7 +123,6 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     /** Shared drawing board over the call's data channel. */
     val whiteboard = Whiteboard()
     private var dataChannel: DataChannel? = null
-    private var whiteboardOffered = false
     private var totalBytes = 0L
     /** We are sending our screen instead of the camera (or as a new video track in a voice call). */
     val screenSharing = MutableStateFlow(false)
@@ -173,8 +173,8 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     private val pcmLock = Any()
     private val pcmChunks = ArrayDeque<FloatArray>()
     private var pcmSamples = 0
-    private var sttRunning = false
-    @Volatile private var sttUnavailable = false
+    /** True once this call has asked the model to load. The copy stays off until that finishes. */
+    private var captionArmed = false
     private val transcriptLock = Any()
     private val transcript = StringBuilder()
     private var lastLost = 0L
@@ -524,9 +524,16 @@ class CallManager(private val app: Application, private val repo: ChatRepository
 
         if (video) attachVideo(f, p)
 
-        // The whiteboard channel is opened only after the first local description
-        // has been applied. Creating it earlier makes setLocalDescription use a
-        // transport that does not exist yet.
+        // Same as 2.2.0: the caller puts the whiteboard channel in the first offer.
+        // The callee receives it through onDataChannel. Captions stay off until media is up.
+        if (isCaller) {
+            runCatching {
+                val dc = p.createDataChannel(Whiteboard.CHANNEL_LABEL, DataChannel.Init().apply { ordered = true })
+                dataChannel = dc
+                whiteboard.attach(dc)
+            }.onFailure { Log.w(TAG, "data channel: ${it.message}") }
+        }
+
         repo.voice.stop()
         repo.voice.inCall = true
         audio.start(preferSpeaker = video)
@@ -672,19 +679,6 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         }), constraints)
     }
 
-    /** Caller only, after ICE is up, so the transport exists. One follow-up offer carries the channel. */
-    private fun openWhiteboard(p: PeerConnection) {
-        if (!isCaller || dataChannel != null || whiteboardOffered) return
-        val dc = runCatching {
-            p.createDataChannel(Whiteboard.CHANNEL_LABEL, DataChannel.Init().apply { ordered = true })
-        }.onFailure { Log.w(TAG, "data channel: ${it.message}") }.getOrNull() ?: return
-        dataChannel = dc
-        whiteboard.attach(dc)
-        whiteboardOffered = true
-        Diag.log(TAG, "whiteboard opened")
-        createOffer(iceRestart = false)
-    }
-
     private fun restartIce(why: String) {
         if (!withBot.value) {
             recover(why)
@@ -728,7 +722,10 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         }
     }
 
-    /** Caller only, so the two phones do not offer into each other. Stop once the nominated pair is direct. */
+    /**
+     * Caller only, after the first media path is up (relay included). Stop once the nominated pair is direct.
+     * A network change while ICE is already down still uses the 2.2.0 restart.
+     */
     private fun ensurePunchLoop() {
         if (withBot.value || !isCaller) return
         if (punchJob?.isActive == true) return
@@ -796,7 +793,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         }
         callStart = System.currentTimeMillis()
         state.value = s.copy(connected = true, startedAt = callStart)
-        pc?.let { openWhiteboard(it) }
+        armCaptions()
         beep(ToneGenerator.TONE_PROP_ACK, 150)
         startStats()
         ensurePunchLoop()
@@ -878,6 +875,8 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     }
 
     private fun teardown() {
+        CaptionGate.enabled = false
+        captionArmed = false
         if (screenCapturer != null) {
             val cap = screenCapturer
             screenCapturer = null
@@ -923,9 +922,7 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         synchronized(pcmLock) {
             pcmChunks.clear()
             pcmSamples = 0
-            sttRunning = false
         }
-        sttUnavailable = false
         localCaptions.value = emptyList()
         localCaptionHint.value = null
         synchronized(transcriptLock) { transcript.setLength(0) }
@@ -933,7 +930,6 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         whiteboard.reset()
         val oldDc = dataChannel
         dataChannel = null
-        whiteboardOffered = false
 
         releaseProximity()
         audio.stop()
@@ -1099,49 +1095,87 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         return "（前面的话已略）\n" + raw.takeLast(SUMMARY_CHARS)
     }
 
+    /**
+     * Media is already up. Load the on-device model, then allow the record thread to copy.
+     * Does not download. A missing model leaves the call up and the copy off.
+     */
+    private fun armCaptions() {
+        if (captionArmed || withBot.value) return
+        captionArmed = true
+        captionScope.launch {
+            if (!LocalStt.ready(app)) {
+                scope.launch { localCaptionHint.value = "语音识别模型未就绪" }
+                return@launch
+            }
+            val ok = runCatching { LocalStt.start(app) }.isSuccess
+            val still = state.value as? State.Active
+            if (!ok || !captionArmed || still == null || !still.connected) {
+                if (!ok) scope.launch { localCaptionHint.value = "语音识别模型未就绪" }
+                return@launch
+            }
+            CaptionGate.enabled = true
+            if (!captionArmed) CaptionGate.enabled = false
+            else Diag.log(TAG, "caption gate open")
+        }
+    }
+
+    /** Producer: the record thread already copied this frame before sending it. Only enqueue. */
     private fun onMicSamples(samples: JavaAudioDeviceModule.AudioSamples) {
         try {
-            onMicSamplesUnchecked(samples)
+            if (!CaptionGate.enabled || withBot.value || muted.value) return
+            val active = state.value as? State.Active ?: return
+            if (!active.connected) return
+            val data = samples.data
+            if (data == null || data.isEmpty()) return
+            synchronized(rawQueue) {
+                rawQueue.addLast(RawPcm(data, samples.sampleRate, samples.channelCount))
+                while (rawQueue.size > 300) rawQueue.removeFirst()
+            }
+            if (rawJob?.isActive == true) return
+            rawJob = captionScope.launch { consumeCaptions() }
         } catch (e: Throwable) {
             Diag.warn(TAG, "mic samples", e)
         }
     }
 
-    private fun onMicSamplesUnchecked(samples: JavaAudioDeviceModule.AudioSamples) {
-        if (withBot.value || muted.value) return
-        val active = state.value as? State.Active ?: return
-        if (!active.connected) return
-        val data = samples.data ?: return
-        val copy = data.copyOf()
-        synchronized(rawQueue) {
-            rawQueue.add(RawPcm(copy, samples.sampleRate, samples.channelCount))
-            while (rawQueue.size > 50) rawQueue.removeFirst()
-        }
-        if (rawJob?.isActive == true) return
-        rawJob = captionScope.launch { drainMic() }
-    }
-
-    private suspend fun drainMic() {
-        while (true) {
-            val item = synchronized(rawQueue) { if (rawQueue.isEmpty()) null else rawQueue.removeFirst() } ?: break
+    /** Consumer: take owned copies off the queue. Never reads the buffer WebRTC is sending. */
+    private suspend fun consumeCaptions() {
+        var quiet = 0
+        while (CaptionGate.enabled || synchronized(rawQueue) { rawQueue.isNotEmpty() }) {
+            val item = synchronized(rawQueue) { if (rawQueue.isEmpty()) null else rawQueue.removeFirst() }
+            if (item == null) {
+                delay(40)
+                quiet++
+                if (quiet >= 12) {
+                    quiet = 0
+                    val n = synchronized(pcmLock) { pcmSamples }
+                    if (n >= 8_000) transcribeReady(force = true)
+                }
+                continue
+            }
+            quiet = 0
             val floats = resample16k(item.data, item.rate, item.channels)
-            queueForStt(floats)
+            if (floats.isEmpty()) continue
+            synchronized(pcmLock) {
+                pcmChunks.addLast(floats)
+                pcmSamples += floats.size
+            }
+            while (synchronized(pcmLock) { pcmSamples >= STT_SAMPLES }) {
+                transcribeReady(force = false)
+            }
         }
     }
 
-    private fun queueForStt(chunk: FloatArray) {
-        if (chunk.isEmpty() || sttUnavailable) return
+    private suspend fun transcribeReady(force: Boolean) {
         val take = synchronized(pcmLock) {
-            if (sttRunning) return
-            pcmChunks.add(chunk)
-            pcmSamples += chunk.size
-            if (pcmSamples < STT_SAMPLES) return
-            val out = FloatArray(STT_SAMPLES)
+            val need = if (force) pcmSamples else STT_SAMPLES
+            if (need <= 0 || pcmSamples < need) return
+            val out = FloatArray(need)
             var filled = 0
-            while (filled < STT_SAMPLES && pcmChunks.isNotEmpty()) {
+            while (filled < need && pcmChunks.isNotEmpty()) {
                 val c = pcmChunks.removeFirst()
                 pcmSamples -= c.size
-                val n = minOf(c.size, STT_SAMPLES - filled)
+                val n = minOf(c.size, need - filled)
                 System.arraycopy(c, 0, out, filled, n)
                 filled += n
                 if (n < c.size) {
@@ -1150,25 +1184,25 @@ class CallManager(private val app: Application, private val repo: ChatRepository
                     pcmSamples += rest.size
                 }
             }
-            sttRunning = true
-            out
+            if (filled == 0) return
+            if (filled < out.size) out.copyOf(filled) else out
         }
-        captionScope.launch {
-            try {
-                if (!LocalStt.ready(app)) {
-                    sttUnavailable = true
-                    scope.launch { localCaptionHint.value = "语音识别模型未就绪" }
-                    return@launch
-                }
-                val text = runCatching { LocalStt.transcribePcm(app, take) }.getOrNull() ?: return@launch
-                scope.launch { appendCaption(text) }
-            } finally {
-                synchronized(pcmLock) { sttRunning = false }
+        if (!LocalStt.ready(app)) {
+            CaptionGate.enabled = false
+            synchronized(rawQueue) { rawQueue.clear() }
+            synchronized(pcmLock) {
+                pcmChunks.clear()
+                pcmSamples = 0
             }
+            scope.launch { localCaptionHint.value = "语音识别模型未就绪" }
+            return
         }
+        val text = runCatching { LocalStt.transcribePcm(app, take) }.getOrNull() ?: return
+        scope.launch { appendCaption(text) }
     }
 
     private fun appendCaption(text: String) {
+        if (state.value !is State.Active) return
         val line = text.trim()
         if (line.isEmpty() || localCaptions.value.lastOrNull() == line) return
         localCaptions.value = (localCaptions.value + line).takeLast(6)

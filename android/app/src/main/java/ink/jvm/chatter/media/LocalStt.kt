@@ -85,6 +85,24 @@ object LocalStt {
     }
 
     /**
+     * Load the recognizer that is already on disk. Does not download and does not touch the network.
+     * Call this only after the media path is up, and before any caption copy starts.
+     */
+    suspend fun start(ctx: Context) = withContext(worker) {
+        if (!ready(ctx)) throw IOException("语音识别模型未就绪")
+        gate.withLock {
+            generation++
+            idle?.cancel()
+            try {
+                recognizerLocked(ctx)
+            } finally {
+                _status.value = null
+                scheduleIdle()
+            }
+        }
+    }
+
+    /**
      * Transcribe 16 kHz mono PCM that is already on this phone.
      * Does not download a model and does not touch the network. Empty audio returns "".
      */

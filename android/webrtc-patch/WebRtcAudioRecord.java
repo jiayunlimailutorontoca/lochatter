@@ -147,7 +147,27 @@ class WebRtcAudioRecord {
           // It's possible we've been shut down during the read, and stopRecording() tried and
           // failed to join this thread. To be a bit safer, try to avoid calling any native methods
           // in case they've been unregistered after stopRecording() returned.
-          if (keepAlive) {
+          // Copy only after the call is up and the model is loaded. The copy is a
+          // separate array; the buffer native code sends is left alone. Skip when
+          // any of the objects is missing. ByteBuffer.array() aborts on Android 16.
+          if (keepAlive && !microphoneMute && CaptionGate.enabled
+              && audioSamplesReadyCallback != null && byteBuffer != null && audioRecord != null) {
+            try {
+              ByteBuffer dup = byteBuffer.duplicate();
+              dup.clear();
+              int n = dup.remaining();
+              if (n > 0) {
+                byte[] data = new byte[n];
+                dup.get(data);
+                audioSamplesReadyCallback.onWebRtcAudioRecordSamplesReady(
+                    new JavaAudioDeviceModule.AudioSamples(audioRecord.getAudioFormat(),
+                        audioRecord.getChannelCount(), audioRecord.getSampleRate(), data));
+              }
+            } catch (Throwable t) {
+              Logging.e(TAG, "SamplesReadyCallback failed: " + t);
+            }
+          }
+          if (keepAlive && byteBuffer != null && audioRecord != null) {
             long captureTimeNs = 0;
             if (Build.VERSION.SDK_INT >= 24) {
               if (audioRecord.getTimestamp(audioTimestamp, AudioTimestamp.TIMEBASE_MONOTONIC)
@@ -156,21 +176,6 @@ class WebRtcAudioRecord {
               }
             }
             nativeDataIsRecorded(nativeAudioRecord, bytesRead, captureTimeNs);
-          }
-          if (audioSamplesReadyCallback != null && byteBuffer != null && audioRecord != null) {
-            // duplicate() has its own position. The buffer native code still holds
-            // is left alone. ByteBuffer.array() aborts the process on Android 16.
-            ByteBuffer dup = byteBuffer.duplicate();
-            dup.clear();
-            byte[] data = new byte[dup.capacity()];
-            try {
-              dup.get(data);
-              audioSamplesReadyCallback.onWebRtcAudioRecordSamplesReady(
-                  new JavaAudioDeviceModule.AudioSamples(audioRecord.getAudioFormat(),
-                      audioRecord.getChannelCount(), audioRecord.getSampleRate(), data));
-            } catch (Throwable t) {
-              Logging.e(TAG, "SamplesReadyCallback failed: " + t);
-            }
           }
         } else {
           String errorMessage = "AudioRecord.read failed: " + bytesRead;
