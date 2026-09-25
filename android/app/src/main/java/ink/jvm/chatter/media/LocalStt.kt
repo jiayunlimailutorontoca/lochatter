@@ -84,6 +84,37 @@ object LocalStt {
         }
     }
 
+    /**
+     * Transcribe 16 kHz mono PCM that is already on this phone.
+     * Does not download a model and does not touch the network. Empty audio returns "".
+     */
+    suspend fun transcribePcm(ctx: Context, samples: FloatArray): String = withContext(worker) {
+        if (!ready(ctx)) throw IOException("语音识别模型未就绪")
+        if (samples.isEmpty()) return@withContext ""
+        gate.withLock {
+            generation++
+            idle?.cancel()
+            try {
+                val rec = recognizerLocked(ctx)
+                val stream = rec.createStream()
+                try {
+                    val clipped = if (samples.size > MAX_SAMPLES) samples.copyOf(MAX_SAMPLES) else samples
+                    stream.acceptWaveform(clipped, TARGET_RATE)
+                    rec.decode(stream)
+                    rec.getResult(stream).text.replace(TOKEN_RE, "").trim()
+                } finally {
+                    stream.release()
+                }
+            } catch (e: OutOfMemoryError) {
+                recognizer?.release()
+                recognizer = null
+                throw IOException("内存不够，关掉别的应用再试")
+            } finally {
+                scheduleIdle()
+            }
+        }
+    }
+
     /** Decode [file] (m4a/aac voice note) and return the transcript. Throws with a Chinese message. */
     suspend fun transcribe(ctx: Context, file: File, allowMobile: Boolean): String = withContext(worker) {
         gate.withLock {

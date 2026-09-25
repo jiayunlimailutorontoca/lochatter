@@ -1,0 +1,171 @@
+package ink.jvm.chatter.media
+
+import android.content.Context
+import android.os.StatFs
+import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+/**
+ * On-device call summary. Gemma 3 1B int4 through MediaPipe, CPU only.
+ * The transcript never leaves the phone: the only network use is downloading the weight file.
+ */
+object LocalSummary {
+    private const val FILE_NAME = "gemma3-1b-it-int4.task"
+    private const val MIN_BYTES = 400L * 1024 * 1024
+
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.MINUTES)
+        .followRedirects(true)
+        .build()
+
+    private val gate = Mutex()
+
+    private val _status = MutableStateFlow<String?>(null)
+    val status: StateFlow<String?> = _status.asStateFlow()
+
+    fun ready(ctx: Context): Boolean {
+        val f = File(dir(ctx), FILE_NAME)
+        return f.isFile && f.length() > MIN_BYTES
+    }
+
+    /** Download the weight file. Call this only from the settings switch, never from a call. */
+    suspend fun ensure(ctx: Context) = withContext(Dispatchers.IO) {
+        gate.withLock {
+            try {
+                if (ready(ctx)) return@withLock
+                val free = StatFs(ctx.filesDir.absolutePath).availableBytes
+                if (free < 900L * 1024 * 1024) throw IOException("存储空间不够，纪要模型大约需要 900 MB")
+                val dest = File(dir(ctx), FILE_NAME)
+                val errors = mutableListOf<String>()
+                for (url in URLS) {
+                    try {
+                        download(url, dest)
+                        if (ready(ctx)) return@withLock
+                        errors += "文件不完整"
+                    } catch (e: Exception) {
+                        dest.delete()
+                        errors += e.message ?: url
+                    }
+                }
+                throw IOException(errors.lastOrNull()?.let { "纪要模型下载失败：$it" } ?: "纪要模型下载失败")
+            } finally {
+                _status.value = null
+            }
+        }
+    }
+
+    /**
+     * Summarize [transcript] on this phone. [transcript] is not written to disk and is not posted anywhere.
+     */
+    suspend fun summarize(ctx: Context, transcript: String): String = withContext(Dispatchers.Default) {
+        val text = transcript.trim()
+        if (text.isEmpty()) throw IOException("没有可整理的内容")
+        if (!ready(ctx)) throw IOException("纪要模型未就绪")
+        gate.withLock {
+            val model = File(dir(ctx), FILE_NAME)
+            val llm = try {
+                LlmInference.createFromOptions(
+                    ctx,
+                    LlmInference.LlmInferenceOptions.builder()
+                        .setModelPath(model.absolutePath)
+                        .setMaxTokens(1280)
+                        .setMaxTopK(40)
+                        .setPreferredBackend(LlmInference.Backend.CPU)
+                        .build(),
+                )
+            } catch (e: OutOfMemoryError) {
+                throw IOException("内存不够，关掉别的应用再试")
+            }
+            try {
+                val session = LlmInferenceSession.createFromOptions(
+                    llm,
+                    LlmInferenceSession.LlmInferenceSessionOptions.builder()
+                        .setTopK(40)
+                        .setTopP(0.9f)
+                        .setTemperature(0.4f)
+                        .build(),
+                )
+                try {
+                    session.addQueryChunk(prompt(text))
+                    val out = session.generateResponse().trim()
+                    if (out.isEmpty()) throw IOException("没有整理出内容")
+                    out
+                } finally {
+                    session.close()
+                }
+            } catch (e: IOException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                throw IOException("内存不够，关掉别的应用再试")
+            } catch (e: Exception) {
+                throw IOException(e.message ?: "整理失败")
+            } finally {
+                llm.close()
+            }
+        }
+    }
+
+    private fun prompt(transcript: String): String = """
+        下面是这台手机麦克风在通话里听到的话，只有这一方，没有对方。请用简体中文写一段简短纪要，一百五十字以内。不要编造没有出现的内容，不要写成双方对话。内容很少就概括那一两句。
+
+        $transcript
+    """.trimIndent()
+
+    private fun dir(ctx: Context) = File(ctx.filesDir, "gemma3").apply { mkdirs() }
+
+    private fun download(url: String, dest: File) {
+        val part = File(dest.parentFile, dest.name + ".part")
+        val call = http.newCall(Request.Builder().url(url).header("User-Agent", "lochatter").build())
+        try {
+            call.execute().use { resp ->
+                if (resp.code == 401 || resp.code == 403) {
+                    throw IOException("下载被拒绝（HTTP ${resp.code}）。模型页面要求先同意许可，这里没有访问令牌")
+                }
+                if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+                val body = resp.body ?: throw IOException("空响应")
+                val total = body.contentLength()
+                body.byteStream().use { input ->
+                    part.outputStream().use { out ->
+                        val buf = ByteArray(256 * 1024)
+                        var got = 0L
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n)
+                            got += n
+                            _status.value = if (total > 0) "正在下载纪要模型 ${got * 100 / total}%"
+                            else "正在下载纪要模型 ${got / (1024 * 1024)} MB"
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            part.delete()
+            throw e
+        }
+        if (part.length() < MIN_BYTES) {
+            part.delete()
+            throw IOException("下载不完整")
+        }
+        if (dest.exists() && !dest.delete()) throw IOException("保存失败")
+        if (!part.renameTo(dest)) throw IOException("保存失败")
+    }
+
+    private val URLS = listOf(
+        "https://hf-mirror.com/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task",
+        "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.task",
+    )
+}

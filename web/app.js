@@ -173,9 +173,49 @@ async function render() {
       img.alt = "图片";
       img.className = "shot";
       row.appendChild(img);
-      const id = (m.media && (m.media.thumbId || m.media.id)) || "";
-      if (id) loadImage(id, m.media.mime || "image/jpeg").then((url) => { img.src = url; }).catch(() => { img.replaceWith(textNode("图片打不开")); });
+      const thumb = (m.media && (m.media.thumbId || m.media.id)) || "";
+      const full = (m.media && m.media.id) || thumb;
+      if (thumb) {
+        loadBlob(thumb, m.media.mime || "image/jpeg").then((url) => { img.src = url; }).catch(() => { img.replaceWith(textNode("图片打不开")); });
+        img.onclick = () => {
+          loadBlob(full, m.media.mime || "image/jpeg").then(openLightbox).catch(() => { $("status").textContent = "图片打不开"; });
+        };
+      }
       if (m.text) row.appendChild(textNode(m.text));
+    } else if (m.kind === "audio" && m.media && m.media.id) {
+      const audio = document.createElement("audio");
+      audio.className = "voice";
+      audio.controls = true;
+      audio.preload = "none";
+      row.appendChild(audio);
+      loadBlob(m.media.id, m.media.mime || "audio/mp4").then((url) => { audio.src = url; }).catch(() => { audio.replaceWith(textNode("语音打不开")); });
+    } else if (m.kind === "video" && m.media && m.media.id) {
+      const video = document.createElement("video");
+      video.className = "shot";
+      video.controls = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      row.appendChild(video);
+      loadBlob(m.media.id, m.media.mime || "video/mp4").then((url) => { video.src = url; }).catch(() => { video.replaceWith(textNode("视频打不开")); });
+    } else if (m.kind === "file" && m.media && m.media.id) {
+      const a = document.createElement("a");
+      a.className = "file";
+      const name = safeName(m.media.name);
+      const mime = m.media.mime || "application/octet-stream";
+      const id = m.media.id;
+      a.textContent = name;
+      a.download = name;
+      a.href = "#";
+      a.onclick = (ev) => {
+        if (a.dataset.ready === "1") return;
+        ev.preventDefault();
+        loadBlob(id, mime).then((url) => {
+          a.href = url;
+          a.dataset.ready = "1";
+          a.click();
+        }).catch(() => { a.replaceWith(textNode("文件打不开")); });
+      };
+      row.appendChild(a);
     } else if (m.kind === "text" || m.kind === "card") {
       row.appendChild(textNode(m.text || ""));
     } else {
@@ -192,17 +232,31 @@ function textNode(s) {
   return p;
 }
 
-const imageCache = new Map();
-async function loadImage(id, mime) {
-  if (imageCache.has(id)) return imageCache.get(id);
+const blobCache = new Map();
+function safeName(name) {
+  const n = String(name || "文件").replace(/[\\/:*?"<>|]/g, "_").slice(0, 120);
+  return n || "文件";
+}
+async function loadBlob(id, mime) {
+  if (blobCache.has(id)) return blobCache.get(id);
   const buf = new Uint8Array(await api("/media/" + id));
   const magic = String.fromCharCode(buf[0], buf[1], buf[2], buf[3]);
   const bytes = magic === "LCE1" || magic === "LCE2"
     ? await E2E.decryptBytes(buf, (uid, s, r) => sessionKey(uid, s, r))
     : buf;
-  const url = URL.createObjectURL(new Blob([bytes], { type: mime || "image/jpeg" }));
-  imageCache.set(id, url);
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime || "application/octet-stream" }));
+  blobCache.set(id, url);
   return url;
+}
+function openLightbox(url) {
+  const box = $("lightbox");
+  box.innerHTML = "";
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = "图片";
+  box.appendChild(img);
+  box.hidden = false;
+  box.onclick = () => { box.hidden = true; box.innerHTML = ""; };
 }
 
 function connect() {

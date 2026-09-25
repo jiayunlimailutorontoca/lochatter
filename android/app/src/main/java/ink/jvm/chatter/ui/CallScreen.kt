@@ -106,6 +106,9 @@ fun CallScreen(calls: CallManager, peerName: String, onCollapse: () -> Boolean =
     val state by calls.state.collectAsStateWithLifecycle()
     val withBot by calls.withBot.collectAsStateWithLifecycle()
     val captionBoard by calls.captions.collectAsStateWithLifecycle()
+    val localLines by calls.localCaptions.collectAsStateWithLifecycle()
+    val localHint by calls.localCaptionHint.collectAsStateWithLifecycle()
+    val tryingDirect by calls.tryingDirect.collectAsStateWithLifecycle()
     val app = ctx.applicationContext as ChatterApp
     var spokenCaption by remember { mutableStateOf("") }
     LaunchedEffect(withBot, captionBoard.phase, captionBoard.lines) {
@@ -359,7 +362,19 @@ fun CallScreen(calls: CallManager, peerName: String, onCollapse: () -> Boolean =
                 if (active && stats.bars > 0) {
                     Spacer(Modifier.width(10.dp))
                     SignalBars(stats.bars)
-                    if (stats.relayed) Text(" 中转", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
+                    if (withBot) {
+                        if (stats.relayed) Text(" 中转", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
+                    } else {
+                        Text(
+                            when {
+                                tryingDirect -> " 尝试直连"
+                                stats.relayed -> " 中转"
+                                else -> " 直连"
+                            },
+                            color = Color.White.copy(alpha = 0.6f),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
                 }
             }
             if (showStats && active) {
@@ -380,6 +395,20 @@ fun CallScreen(calls: CallManager, peerName: String, onCollapse: () -> Boolean =
                 }
             }
             Spacer(Modifier.weight(1f))
+            if (active && !withBot) {
+                Column(Modifier.fillMaxWidth().heightIn(max = 140.dp).verticalScroll(rememberScrollState())) {
+                    Text("只转写这台手机说的话", color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.labelMedium)
+                    if (localHint != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(localHint!!, color = Color(0xFFFFD54F), style = MaterialTheme.typography.bodyMedium)
+                    }
+                    localLines.forEach { line ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(line, color = Color.White.copy(alpha = 0.95f), style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             val captionRows = if (withBot) CallCaptions.rows(captionBoard) else emptyList()
             if (captionRows.isNotEmpty()) {
                 Column(

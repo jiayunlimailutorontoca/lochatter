@@ -59,6 +59,9 @@ import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
 import org.webrtc.audio.JavaAudioDeviceModule
+import ink.jvm.chatter.media.LocalStt
+import ink.jvm.chatter.media.LocalSummary
+import java.util.ArrayDeque
 import java.util.UUID
 
 /**
@@ -92,6 +95,17 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     /** Link quality sampled every 2 s from WebRTC stats; bars 0 (unknown) .. 4 (great). */
     data class Stats(val bars: Int, val rttMs: Int, val lossPct: Int, val upKbps: Int, val downKbps: Int, val relayed: Boolean)
     val stats = MutableStateFlow(Stats(0, 0, 0, 0, 0, false))
+    /** True while a human call is deliberately restarting ICE to look for a direct path. */
+    val tryingDirect = MutableStateFlow(false)
+    /** This phone's mic, turned into text on device. Never sent. */
+    val localCaptions = MutableStateFlow<List<String>>(emptyList())
+    /** Set when the on-device recognizer is not on disk. Cloud transcription is not used. */
+    val localCaptionHint = MutableStateFlow<String?>(null)
+    /**
+     * Transcript of this phone's captions, kept until the user drops or sends the summary.
+     * Null unless the call was answered, the setting is on, and the model is already on disk.
+     */
+    val pendingSummary = MutableStateFlow<String?>(null)
     /** Outputs the user can pick from right now (empty outside a call). */
     val audioDevices: StateFlow<List<AudioDevice>> get() = audio.devices
     /** Where call audio is going. */
@@ -147,7 +161,21 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     private var cameraPaused = false
     private var iceRestarted = false
     private var iceUnstable = false
+    private var recoveries = 0
+    private var punching = false
+    private var punchDropped = false
+    private var punchJob: Job? = null
     private var statsJob: Job? = null
+    private val captionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val rawQueue = ArrayDeque<RawPcm>()
+    private var rawJob: Job? = null
+    private val pcmLock = Any()
+    private val pcmChunks = ArrayDeque<FloatArray>()
+    private var pcmSamples = 0
+    private var sttRunning = false
+    @Volatile private var sttUnavailable = false
+    private val transcriptLock = Any()
+    private val transcript = StringBuilder()
     private var lastLost = 0L
     private var lastRecv = 0L
     private var lastSent = 0L
@@ -162,6 +190,10 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     // ---- user actions ----
 
     /** Assistant calls are voice only. SDP and ICE go out in the clear; see [signal]. */
+    fun discardSummary() {
+        pendingSummary.value = null
+    }
+
     fun start(withVideo: Boolean, toBot: Boolean = false) {
         if (state.value != State.Idle) return
         if (toBot && withVideo) return
@@ -433,11 +465,14 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(app)
                 .setEnableInternalTracer(false)
+                // Real host addresses, so a same-LAN pair can connect without mDNS.
+                .setFieldTrials("WebRTC-HideLocalIpsWithMdns/Disabled/")
                 .createInitializationOptions()
         )
         val adm = JavaAudioDeviceModule.builder(app)
             .setUseHardwareAcousticEchoCanceler(true)
             .setUseHardwareNoiseSuppressor(true)
+            .setSamplesReadyCallback { samples -> onMicSamples(samples) }
             .createAudioDeviceModule()
         val f = PeerConnectionFactory.builder()
             .setAudioDeviceModule(adm)
@@ -466,6 +501,11 @@ class CallManager(private val app: Application, private val repo: ChatRepository
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
             iceTransportsType = PeerConnection.IceTransportsType.ALL
+            // Keep checking pairs that lost nomination, so a later direct path can take over.
+            iceBackupCandidatePairPingInterval = 1000
+            stunCandidateKeepaliveIntervalMs = 2000
+            surfaceIceCandidatesOnIceTransportTypeChanged = true
+            iceCandidatePoolSize = 1
         }
         val p = f.createPeerConnection(cfg, observer) ?: throw IllegalStateException("createPeerConnection returned null")
         pc = p
@@ -545,13 +585,30 @@ class CallManager(private val app: Application, private val repo: ChatRepository
                 when (s) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
+                        // A punch's first CONNECTED is the old path still up. Wait until ICE has
+                        // actually dropped once before treating the restart as finished.
+                        if (!withBot.value && punching && !punchDropped) {
+                            markConnected()
+                            return@launch
+                        }
                         iceJob?.cancel()
+                        punching = false
+                        punchDropped = false
+                        tryingDirect.value = false
                         iceRestarted = false
+                        recoveries = 0
                         iceUnstable = false
                         reconnecting.value = false
                         markConnected()
                     }
+                    PeerConnection.IceConnectionState.CHECKING -> {
+                        if (!withBot.value && punching) punchDropped = true
+                    }
                     PeerConnection.IceConnectionState.DISCONNECTED -> {
+                        if (!withBot.value && punching) {
+                            punchDropped = true
+                            return@launch
+                        }
                         iceUnstable = true
                         reconnecting.value = true
                         iceJob?.cancel()
@@ -561,6 +618,14 @@ class CallManager(private val app: Application, private val repo: ChatRepository
                         }
                     }
                     PeerConnection.IceConnectionState.FAILED -> {
+                        if (!withBot.value && punching) {
+                            punching = false
+                            punchDropped = false
+                            tryingDirect.value = false
+                            iceJob?.cancel()
+                            recover("punch")
+                            return@launch
+                        }
                         iceUnstable = true
                         reconnecting.value = true
                         restartIce("failed")
@@ -607,6 +672,10 @@ class CallManager(private val app: Application, private val repo: ChatRepository
     }
 
     private fun restartIce(why: String) {
+        if (!withBot.value) {
+            recover(why)
+            return
+        }
         if (state.value !is State.Active || pc == null) return
         if (iceRestarted) {
             Log.w(TAG, "ICE $why after a restart; giving up")
@@ -620,6 +689,63 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         iceJob = scope.launch {
             delay(12_000)
             if (state.value is State.Active && iceRestarted) finish("failed", notifyPeer = true)
+        }
+    }
+
+    /** Human calls only. A failed attempt does not hang up; TURN is in the new offer and can come back. */
+    private fun recover(why: String) {
+        if (state.value !is State.Active || pc == null) return
+        if (recoveries >= MAX_RECOVERIES) {
+            Log.w(TAG, "ICE $why after $recoveries recoveries; giving up")
+            finish("failed", notifyPeer = true)
+            return
+        }
+        recoveries++
+        iceUnstable = true
+        Log.i(TAG, "ICE recover ($why) #$recoveries")
+        createOffer(iceRestart = true)
+        iceJob?.cancel()
+        iceJob = scope.launch {
+            delay(12_000)
+            if (state.value is State.Active && iceUnstable) {
+                if (recoveries >= MAX_RECOVERIES) finish("failed", notifyPeer = true)
+                else recover("timeout")
+            }
+        }
+    }
+
+    /** Caller only, so the two phones do not offer into each other. Stop once the nominated pair is direct. */
+    private fun ensurePunchLoop() {
+        if (withBot.value || !isCaller) return
+        if (punchJob?.isActive == true) return
+        punchJob = scope.launch {
+            while (true) {
+                delay(PUNCH_MS)
+                val s = state.value as? State.Active ?: continue
+                if (!s.connected || iceUnstable || punching) continue
+                if (!stats.value.relayed) continue
+                punchOnce()
+            }
+        }
+    }
+
+    private fun punchOnce() {
+        if (punching || pc == null || state.value !is State.Active) return
+        punching = true
+        punchDropped = false
+        tryingDirect.value = true
+        Log.i(TAG, "hole punch")
+        createOffer(iceRestart = true)
+        iceJob?.cancel()
+        iceJob = scope.launch {
+            delay(PUNCH_SETTLE_MS)
+            punching = false
+            punchDropped = false
+            tryingDirect.value = false
+            val ice = pc?.iceConnectionState()
+            val up = ice == PeerConnection.IceConnectionState.CONNECTED ||
+                ice == PeerConnection.IceConnectionState.COMPLETED
+            if (state.value is State.Active && !up) recover("punch")
         }
     }
 
@@ -650,11 +776,15 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         val s = state.value as? State.Active ?: return
         timeoutJob?.cancel()
         applyProximity()
-        if (s.connected) return
+        if (s.connected) {
+            ensurePunchLoop()
+            return
+        }
         callStart = System.currentTimeMillis()
         state.value = s.copy(connected = true, startedAt = callStart)
         beep(ToneGenerator.TONE_PROP_ACK, 150)
         startStats()
+        ensurePunchLoop()
     }
 
     /** Voice + earpiece: turn the screen off when the phone is against the ear. */
@@ -687,16 +817,25 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         statsJob?.cancel()
         statsJob = null
         stats.value = Stats(0, 0, 0, 0, 0, false)
+        punchJob?.cancel()
+        punchJob = null
+        punching = false
+        punchDropped = false
+        tryingDirect.value = false
         stopRinging()
         stopRingback()
         timeoutJob?.cancel()
         iceJob?.cancel()
+        val note = transcriptForSummary()
+        val wantSummary = answered && !withBot.value && note.isNotEmpty() &&
+            repo.prefs.callSummary && LocalSummary.ready(app)
         if (notifyPeer) callId?.let { signal(CallHangup(it, reason)) }
         if (answered) beep(ToneGenerator.TONE_PROP_NACK, 250)
         logCall(reason)
         if (answered && callStart > 0) runCatching { repo.recordCall(video, (System.currentTimeMillis() - callStart) / 1000, totalBytes) }
         val bot = withBot.value
         teardown()
+        if (wantSummary) pendingSummary.value = note
         captions.value = CallCaptions.close(captions.value)
         state.value = State.Ended(reason, video)
         endedJob?.cancel()
@@ -762,7 +901,19 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         cameraPaused = false
         iceRestarted = false
         iceUnstable = false
+        recoveries = 0
         totalBytes = 0
+        rawJob?.cancel()
+        synchronized(rawQueue) { rawQueue.clear() }
+        synchronized(pcmLock) {
+            pcmChunks.clear()
+            pcmSamples = 0
+            sttRunning = false
+        }
+        sttUnavailable = false
+        localCaptions.value = emptyList()
+        localCaptionHint.value = null
+        synchronized(transcriptLock) { transcript.setLength(0) }
         whiteboard.detach()
         whiteboard.reset()
         val oldDc = dataChannel
@@ -926,11 +1077,124 @@ class CallManager(private val app: Application, private val repo: ChatRepository
         override fun onSetFailure(error: String?) { Log.e(TAG, "$tag set failed: $error") }
     }
 
+    private fun transcriptForSummary(): String {
+        val raw = synchronized(transcriptLock) { transcript.toString().trim() }
+        if (raw.length <= SUMMARY_CHARS) return raw
+        return "（前面的话已略）\n" + raw.takeLast(SUMMARY_CHARS)
+    }
+
+    private fun onMicSamples(samples: JavaAudioDeviceModule.AudioSamples) {
+        if (withBot.value || muted.value) return
+        val active = state.value as? State.Active ?: return
+        if (!active.connected) return
+        val copy = samples.data.copyOf()
+        synchronized(rawQueue) {
+            rawQueue.add(RawPcm(copy, samples.sampleRate, samples.channelCount))
+            while (rawQueue.size > 50) rawQueue.removeFirst()
+        }
+        if (rawJob?.isActive == true) return
+        rawJob = captionScope.launch { drainMic() }
+    }
+
+    private suspend fun drainMic() {
+        while (true) {
+            val item = synchronized(rawQueue) { if (rawQueue.isEmpty()) null else rawQueue.removeFirst() } ?: break
+            val floats = resample16k(item.data, item.rate, item.channels)
+            queueForStt(floats)
+        }
+    }
+
+    private fun queueForStt(chunk: FloatArray) {
+        if (chunk.isEmpty() || sttUnavailable) return
+        val take = synchronized(pcmLock) {
+            if (sttRunning) return
+            pcmChunks.add(chunk)
+            pcmSamples += chunk.size
+            if (pcmSamples < STT_SAMPLES) return
+            val out = FloatArray(STT_SAMPLES)
+            var filled = 0
+            while (filled < STT_SAMPLES && pcmChunks.isNotEmpty()) {
+                val c = pcmChunks.removeFirst()
+                pcmSamples -= c.size
+                val n = minOf(c.size, STT_SAMPLES - filled)
+                System.arraycopy(c, 0, out, filled, n)
+                filled += n
+                if (n < c.size) {
+                    val rest = c.copyOfRange(n, c.size)
+                    pcmChunks.addFirst(rest)
+                    pcmSamples += rest.size
+                }
+            }
+            sttRunning = true
+            out
+        }
+        captionScope.launch {
+            try {
+                if (!LocalStt.ready(app)) {
+                    sttUnavailable = true
+                    scope.launch { localCaptionHint.value = "语音识别模型未就绪" }
+                    return@launch
+                }
+                val text = runCatching { LocalStt.transcribePcm(app, take) }.getOrNull() ?: return@launch
+                scope.launch { appendCaption(text) }
+            } finally {
+                synchronized(pcmLock) { sttRunning = false }
+            }
+        }
+    }
+
+    private fun appendCaption(text: String) {
+        val line = text.trim()
+        if (line.isEmpty() || localCaptions.value.lastOrNull() == line) return
+        localCaptions.value = (localCaptions.value + line).takeLast(6)
+        synchronized(transcriptLock) {
+            if (transcript.isNotEmpty()) transcript.append('\n')
+            transcript.append(line)
+            if (transcript.length > TRANSCRIPT_MAX) {
+                val extra = transcript.length - TRANSCRIPT_MAX
+                val nl = transcript.indexOf('\n', extra)
+                val cut = if (nl < 0) extra else nl + 1
+                transcript.delete(0, cut.coerceAtMost(transcript.length))
+            }
+        }
+    }
+
+    /** Little-endian 16-bit interleaved PCM → 16 kHz mono float. */
+    private fun resample16k(data: ByteArray, rate: Int, channels: Int): FloatArray {
+        if (rate <= 0 || channels <= 0 || data.size < 2) return FloatArray(0)
+        val frames = data.size / 2 / channels
+        if (frames <= 0) return FloatArray(0)
+        val outLen = (frames.toLong() * 16_000 / rate).toInt().coerceAtLeast(1)
+        val out = FloatArray(outLen)
+        for (i in 0 until outLen) {
+            val src = (i.toLong() * rate / 16_000).toInt().coerceIn(0, frames - 1)
+            var acc = 0
+            val base = src * channels
+            for (ch in 0 until channels) {
+                val idx = (base + ch) * 2
+                if (idx + 1 >= data.size) break
+                val lo = data[idx].toInt() and 0xff
+                val hi = data[idx + 1].toInt() shl 8
+                acc += (lo or hi).toShort().toInt()
+            }
+            out[i] = (acc.toFloat() / channels / 32768f).coerceIn(-1f, 1f)
+        }
+        return out
+    }
+
+    private class RawPcm(val data: ByteArray, val rate: Int, val channels: Int)
+
     private companion object {
         const val TAG = "CallManager"
         const val STREAM_ID = "s0"
         const val RING_MS = 45_000L
         const val CONNECT_MS = 30_000L
         const val MAX_VIDEO_BPS = 1_200_000
+        const val PUNCH_MS = 20_000L
+        const val PUNCH_SETTLE_MS = 15_000L
+        const val MAX_RECOVERIES = 2
+        const val STT_SAMPLES = 16_000 * 3
+        const val TRANSCRIPT_MAX = 4000
+        const val SUMMARY_CHARS = 600
     }
 }

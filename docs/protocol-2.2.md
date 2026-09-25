@@ -39,7 +39,7 @@ Android `versionCode` 为 36，`versionName` 为 `2.2.0`。服务端 `Version` �
 
 2.2.1 仅修订 Android 客户端，不新增帧或字段，服务端版本不变。表情面板在搜索框取得焦点、输入法弹出后保持打开，并排列在输入法上方。该客户端 `versionCode` 为 37，`versionName` 为 `2.2.1`。
 
-2.2.2 的 Android `versionCode` 为 38，`versionName` 为 `2.2.2`。服务端 `Version` 为 `2.2.2`。`GET /healthz` 的 `version` 返回该版本号。数据库 schema 仍为 9。
+2.2.2 的 Android `versionCode` 为 38，`versionName` 为 `2.2.2`。服务端 `Version` 为 `2.2.2`。`GET /healthz` 的 `version` 返回该版本号。数据库 schema 仍为 9。2.3.0 的版本号与行为见 [protocol-2.3.md](protocol-2.3.md)。
 
 ## 网页扫码登录
 

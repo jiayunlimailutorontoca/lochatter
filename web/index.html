@@ -24,7 +24,13 @@
     .row p, .row img { margin: 0; max-width: 70%; background: #fff; border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
     .row.me p { background: #95ec69; }
     .row.sys p { background: transparent; color: #888; font-size: 13px; }
-    img.shot { padding: 4px; max-width: 240px; max-height: 240px; object-fit: contain; background: #fff; }
+    img.shot, video.shot { padding: 4px; max-width: 240px; max-height: 240px; object-fit: contain; background: #fff; cursor: pointer; }
+    audio.voice { width: min(280px, 70vw); }
+    a.file { display: inline-block; max-width: 70%; background: #fff; border-radius: 8px; padding: 8px 10px; color: #07c160; text-decoration: none; word-break: break-all; }
+    .row.me a.file { background: #95ec69; color: #111; }
+    #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 20; display: flex; align-items: center; justify-content: center; }
+    #lightbox[hidden] { display: none; }
+    #lightbox img { max-width: 92vw; max-height: 92vh; object-fit: contain; }
     .composer { display: flex; gap: 8px; align-items: flex-end; }
     .composer textarea { flex: 1; min-height: 44px; resize: vertical; }
     .hint { color: #666; font-size: 13px; }
@@ -82,6 +88,7 @@
       </div>
     </section>
   </main>
+  <div id="lightbox" hidden></div>
   <script src="qr.js"></script>
   <script src="e2e.js"></script>
   <script src="app.js"></script>

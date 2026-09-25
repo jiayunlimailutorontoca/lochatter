@@ -86,6 +86,8 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
     var botVoice by remember { mutableStateOf(repo.prefs.botVoiceToText) }
     var cloudStt by remember { mutableStateOf(repo.prefs.cloudStt) }
     var cloudUrl by remember { mutableStateOf(repo.prefs.cloudSttUrl) }
+    var callSummary by remember { mutableStateOf(repo.prefs.callSummary) }
+    var summaryReq by remember { mutableStateOf(0) }
     var pushProvider by remember { mutableStateOf("off") }
     var pushSecret by remember { mutableStateOf("") }
     var pushEvery by remember { mutableStateOf("60") }
@@ -353,6 +355,46 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                     )
+                }
+            }
+            Section("通话纪要") {
+                val summaryStatus by ink.jvm.chatter.media.LocalSummary.status.collectAsStateWithLifecycle()
+                val summaryReady = ink.jvm.chatter.media.LocalSummary.ready(ctx)
+                SwitchItem(
+                    "挂断后整理纪要",
+                    summaryStatus ?: if (summaryReady) {
+                        "默认关。用本机的 Gemma 3 1B 整理这台手机听到的话，不上传。模型已在手机上。"
+                    } else {
+                        "默认关。打开后下载 Gemma 3 1B（约 550 MB），只在这台手机上整理，不上传。"
+                    },
+                    callSummary,
+                ) { on ->
+                    if (!on) {
+                        summaryReq += 1
+                        callSummary = false
+                        repo.prefs.callSummary = false
+                    } else if (ink.jvm.chatter.media.LocalSummary.ready(ctx)) {
+                        callSummary = true
+                        repo.prefs.callSummary = true
+                    } else {
+                        val req = summaryReq + 1
+                        summaryReq = req
+                        scope.launch {
+                            runCatching { ink.jvm.chatter.media.LocalSummary.ensure(ctx) }
+                                .onSuccess {
+                                    if (summaryReq != req) return@launch
+                                    callSummary = true
+                                    repo.prefs.callSummary = true
+                                    Toast.makeText(ctx, "纪要模型已就绪", Toast.LENGTH_SHORT).show()
+                                }
+                                .onFailure {
+                                    if (summaryReq != req) return@launch
+                                    callSummary = false
+                                    repo.prefs.callSummary = false
+                                    Toast.makeText(ctx, it.message ?: "下载失败", Toast.LENGTH_LONG).show()
+                                }
+                        }
+                    }
                 }
             }
             Section("助手") {

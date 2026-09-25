@@ -205,6 +205,14 @@ class Prefs(context: Context) {
         get() = sp.getString("cloudSttUrl", "") ?: ""
         set(v) { sp.edit().putString("cloudSttUrl", v).apply() }
 
+    /**
+     * After a human call, summarize this phone's own captions with the on-device model.
+     * Default off. The transcript is never sent to a cloud model.
+     */
+    var callSummary: Boolean
+        get() = sp.getBoolean("callSummary", false)
+        set(v) { sp.edit().putBoolean("callSummary", v).apply() }
+
     /** Fetch OpenGraph cards for links in text messages (the phone contacts the site). */
     var linkPreview: Boolean
         get() = sp.getBoolean("linkPreview", true)

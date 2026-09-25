@@ -39,8 +39,8 @@ android {
         applicationId = "ink.jvm.chatter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 38
-        versionName = "2.2.2"
+        versionCode = 40
+        versionName = "2.3.0"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
 
@@ -115,6 +115,8 @@ dependencies {
     implementation("io.getstream:stream-webrtc-android:1.3.10")
     // Prebuilt sherpa-onnx Android AAR (Kotlin API + libsherpa-onnx-jni + onnxruntime), v1.13.8.
     implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
+    // On-device summary model (Gemma 3 1B). No NDK in this tree; MediaPipe runs the .task on CPU.
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
     implementation("org.apache.commons:commons-compress:1.27.1")
     // QR-code key migration between phones (scanner activity + encoder), pure Java, offline.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0") { isTransitive = false }
