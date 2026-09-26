@@ -33,9 +33,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * On-device text help. The three LiteRT-LM Qwen files stay on CPU.
- * The GGUF option goes through HexagonSummary (Qualcomm GenieX).
- * Weights download from ModelScope. Chat text never leaves the phone.
+ * On-device text help. The three LiteRT-LM Qwen files run on the GPU.
+ * The GGUF option goes through HexagonSummary: Hexagon NPU on listed Snapdragon
+ * chips, GPU everywhere else. Weights download from ModelScope. Chat text never leaves the phone.
  */
 object LocalSummary {
     data class Option(
@@ -58,7 +58,7 @@ object LocalSummary {
         Option(
             id = "qwen35-4b",
             title = "Qwen3.5 4B",
-            detail = "默认。没有正好 3B 的端侧文件，这是最接近的一档。约 2.6 GB，手机内存要有 8 GB。只处理文字。",
+            detail = "默认。没有正好 3B 的端侧文件，这是最接近的一档。约 2.6 GB，走 GPU，手机内存要有 8 GB。只处理文字。",
             downloadHint = "约 2.6 GB，另外还要留出大约 3 GB 给第一次运行的缓存。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
             fileName = "Qwen3.5-4B_mixed_int4.litertlm",
             minBytes = 2_200_000_000L,
@@ -73,7 +73,7 @@ object LocalSummary {
         Option(
             id = "qwen35-2b-npu",
             title = "Qwen3.5 2B · 高通 NPU",
-            detail = "GGUF Q4_0，约 1.2 GB。骁龙 8 Gen 2、8 Gen 3、8 Elite 走 Hexagon NPU，打不开就改用这颗的 CPU。华为麒麟和联发科天玑没有能放进安装包的 NPU 库，选这颗也只走 CPU。只处理文字。",
+            detail = "GGUF Q4_0，约 1.2 GB。骁龙 8 Gen 2、8 Gen 3、8 Elite 走 Hexagon NPU。打不开，或者不是这几款，就走 GPU。只处理文字。",
             downloadHint = "约 1.2 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
             fileName = "Qwen3.5-2B-Q4_0.gguf",
             minBytes = 1_100_000_000L,
@@ -89,7 +89,7 @@ object LocalSummary {
         Option(
             id = "qwen35-2b",
             title = "Qwen3.5 2B",
-            detail = "更小一档。约 2.0 GB。只处理文字。",
+            detail = "更小一档。约 2.0 GB。走 GPU。只处理文字。",
             downloadHint = "约 2.0 GB，第一次运行还要一些缓存空间。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
             fileName = "Qwen3.5-2B_int8.litertlm",
             minBytes = 1_600_000_000L,
@@ -104,7 +104,7 @@ object LocalSummary {
         Option(
             id = "qwen3-1.7b",
             title = "Qwen3 1.7B",
-            detail = "更轻，约 1 GB。内存紧张时用这个。只处理文字。",
+            detail = "更轻，约 1 GB。走 GPU。内存紧张时用这个。只处理文字。",
             downloadHint = "约 1 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
             fileName = "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",
             minBytes = 700_000_000L,
@@ -259,7 +259,7 @@ object LocalSummary {
                     releaseLitert()
                     return@withLock HexagonSummary.generate(ctx, model, text, onPartial)
                 }
-                _accelNote.value = null
+                _accelNote.value = " 当前走 GPU。"
                 HexagonSummary.release()
                 val llm = try {
                     engineFor(ctx, model)
@@ -349,7 +349,7 @@ object LocalSummary {
         val created = Engine(
             EngineConfig(
                 modelPath = fileOf(ctx, model).absolutePath,
-                backend = Backend.CPU(threadCount = 4),
+                backend = Backend.GPU(),
                 maxNumTokens = model.context,
                 cacheDir = File(dir(ctx), "cache-${model.id}").apply { mkdirs() }.absolutePath,
             ),

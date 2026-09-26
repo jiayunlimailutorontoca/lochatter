@@ -30,11 +30,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * The JNI bridge class is Kotlin-internal, so this file calls it by the method names
  * already published in the AAR. NPU only on Snapdragon chipsets whose Hexagon version
  * is in the 0.7.0 AAR (v73, v75, v79, v81). Anywhere else, and if NPU create throws,
- * the same file runs on CPU. Loaded only after the user picks this weight.
+ * the same file runs on the GPU. Loaded only after the user picks this weight.
  */
 internal object HexagonSummary {
     private const val UNIT_NPU = "npu"
-    private const val UNIT_CPU = "cpu"
+    private const val UNIT_GPU = "gpu"
     private const val RUNTIME = "llama_cpp"
 
     private val main = Handler(Looper.getMainLooper())
@@ -95,8 +95,8 @@ internal object HexagonSummary {
         LocalSummary.setAccelNote(
             when {
                 unit == UNIT_NPU -> " 当前走高通 Hexagon NPU。"
-                npuBroken -> " 高通 NPU 没有打开，已改用这颗权重的 CPU。"
-                else -> " 这台不是已打包的骁龙 NPU，这颗权重走 CPU。"
+                npuBroken -> " 高通 NPU 没有打开，已改用 GPU。"
+                else -> " 当前走 GPU。"
             },
         )
         val raw = StringBuilder()
@@ -156,7 +156,7 @@ internal object HexagonSummary {
     private suspend fun open(ctx: Context, model: LocalSummary.Option): String = withContext(Dispatchers.IO) {
         if (abandoned) throw IOException("上一次生成还没停下来")
         prepare(ctx)
-        val unit = if (!npuBroken && snapdragonNpu()) UNIT_NPU else UNIT_CPU
+        val unit = if (!npuBroken && snapdragonNpu()) UNIT_NPU else UNIT_GPU
         if (llm != null && handle != 0L && openId == model.id && openUnit == unit) return@withContext unit
         release()
         try {
@@ -168,17 +168,17 @@ internal object HexagonSummary {
             release()
             if (unit != UNIT_NPU) {
                 if (e is IOException) throw e
-                throw IOException(e.message ?: "模型没有打开", e)
+                throw IOException(e.message ?: "GPU 没有打开", e)
             }
             npuBroken = true
             try {
-                create(ctx, model, UNIT_CPU)
-                UNIT_CPU
+                create(ctx, model, UNIT_GPU)
+                UNIT_GPU
             } catch (again: kotlinx.coroutines.CancellationException) {
                 throw again
             } catch (again: Throwable) {
                 release()
-                throw IOException(again.message ?: "模型没有打开", again)
+                throw IOException(again.message ?: "GPU 没有打开", again)
             }
         }
     }
@@ -192,7 +192,7 @@ internal object HexagonSummary {
                     nCtx = model.context,
                     nThreads = 4,
                     nThreadsBatch = 4,
-                    nGpuLayers = if (unit == UNIT_CPU) 0 else -1,
+                    nGpuLayers = -1,
                 ),
                 runtime_id = RUNTIME,
                 compute_unit = unit,
@@ -210,8 +210,8 @@ internal object HexagonSummary {
         var llamaMissing = false
         GenieXSdk.getInstance().init(ctx, object : GenieXSdk.InitCallback {
             override fun onSuccess() = Unit
-            override fun onFailure(message: String) {
-                if (message.contains("llama_cpp")) llamaMissing = true
+            override fun onFailure(reason: String) {
+                if (reason.contains("llama_cpp")) llamaMissing = true
             }
         })
         if (llamaMissing) throw IOException("高通运行库没准备好")
