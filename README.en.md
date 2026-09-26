@@ -44,6 +44,8 @@ The normative document is the Chinese README: [README.md](README.md).
 
 2.5.5 does not change the protocol or the server. Android `versionCode` is 55. The on-device model loads the first time a summary is requested. The screen says it is loading. After that, the same process keeps the model in memory.
 
+2.5.6 does not change the protocol or the server. Android `versionCode` is 56. The cloud endpoint is the default summary choice and is listed first. The three on-device models remain available.
+
 A deployment has at most two human accounts, plus an optional assistant (user id 0). The assistant receives only messages explicitly addressed to it, and only in plaintext. Frames are JSON over a WebSocket. After a disconnect the client resumes by sequence number and retries an unacknowledged send with the original id.
 
 Encryption is ECDH P-256, HKDF, and AES-256-GCM. Ciphertext uses the prefix `e2e:` or, after a key epoch of about seven days, `e2e2:`. Media uses `LCE1` or `LCE2`. SDP and ICE between the two users are encrypted with the same session key. Media is WebRTC DTLS-SRTP and is not stored by the chat server. If either party has not published a public key, that message is sent in plaintext.

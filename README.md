@@ -44,6 +44,8 @@ lochatter 是一套供两名用户使用的即时通讯系统，包含 Android �
 
 2.5.5 不修改协议与服务端。Android `versionCode` 为 55。本机模型在第一次整理时载入，界面写明正在载入，载好后留在内存里。详见 [protocol-2.5.5.md](docs/protocol-2.5.5.md)。
 
+2.5.6 不修改协议与服务端。Android `versionCode` 为 56。整理默认改用云端接口，并排在选项第一位。本机三档仍可改选。详见 [protocol-2.5.6.md](docs/protocol-2.5.6.md)。
+
 ## 1. 客户端与账号
 
 客户端要求 Android 8.0（`minSdk` 26）及以上。消息使用 WebSocket 传输，每帧一条 JSON。连接中断后，客户端按序号补齐缺失消息；未收到确认的消息以原 `id` 重发。服务端按 `id` 去重，不产生第二条记录。

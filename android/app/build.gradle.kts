@@ -39,8 +39,8 @@ android {
         applicationId = "ink.jvm.chatter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 55
-        versionName = "2.5.5"
+        versionCode = 56
+        versionName = "2.5.6"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
 

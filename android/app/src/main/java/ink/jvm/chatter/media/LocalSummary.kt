@@ -48,7 +48,7 @@ object LocalSummary {
         val cloud: Boolean = false,
     )
 
-    private const val DEFAULT_ID = "qwen3-1.7b"
+    private const val DEFAULT_ID = "cloud"
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
     private fun local(id: String, title: String, detail: String, hint: String, repo: String, weightMin: Long, minFree: Long, eight: Boolean) =
@@ -70,6 +70,17 @@ object LocalSummary {
         )
 
     private val options = listOf(
+        Option(
+            id = "cloud",
+            title = "云端接口",
+            detail = "默认。把要整理的文字发到你填的地址。接口按 OpenAI 的对话格式。",
+            downloadHint = "在设置里填写接口地址和模型名。密钥可以留空。",
+            repo = "",
+            pieces = emptyList(),
+            minFree = 0,
+            needEightGb = false,
+            cloud = true,
+        ),
         local(
             id = "qwen3-0.6b",
             title = "Qwen3 0.6B",
@@ -83,7 +94,7 @@ object LocalSummary {
         local(
             id = "qwen3-1.7b",
             title = "Qwen3 1.7B",
-            detail = "默认。约 1.2 GB。走 GPU。只处理文字。",
+            detail = "约 1.2 GB。走 GPU。只处理文字。",
             hint = "约 1.2 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
             repo = "MNN/Qwen3-1.7B-MNN",
             weightMin = 1_100_000_000L,
@@ -99,17 +110,6 @@ object LocalSummary {
             weightMin = 2_400_000_000L,
             minFree = 4L * 1024 * 1024 * 1024,
             eight = true,
-        ),
-        Option(
-            id = "cloud",
-            title = "云端接口",
-            detail = "把要整理的文字发到你填的地址。接口按 OpenAI 的对话格式。",
-            downloadHint = "在设置里填写接口地址和模型名。密钥可以留空。",
-            repo = "",
-            pieces = emptyList(),
-            minFree = 0,
-            needEightGb = false,
-            cloud = true,
         ),
     )
 

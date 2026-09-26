@@ -215,9 +215,9 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("callSummary", false)
         set(v) { sp.edit().putBoolean("callSummary", v).apply() }
 
-    /** Selected summary engine. Default is Qwen3 1.7B on the GPU. "cloud" uses the fields below. */
+    /** Selected summary engine. Default is the cloud endpoint. Local ids use the on-device GPU. */
     var summaryModel: String
-        get() = sp.getString("summaryModel", "qwen3-1.7b") ?: "qwen3-1.7b"
+        get() = sp.getString("summaryModel", "cloud") ?: "cloud"
         set(v) { sp.edit().putString("summaryModel", v).apply() }
 
     /** OpenAI-compatible chat base URL for the optional cloud summary. Empty until the user fills it in. */
