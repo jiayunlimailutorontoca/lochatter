@@ -31,6 +31,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -367,6 +368,8 @@ class MainActivity : FragmentActivity() {
         val minimized = mutableStateOf(false)
         /** App-lock gate; true until the user authenticates (only when the setting is on). */
         val locked = mutableStateOf(true)
+        /** True while a call is ringing, connecting, or active. Daily digest waits. */
+        val callBusy = mutableStateOf(false)
     }
 }
 
@@ -401,6 +404,7 @@ private fun Root(repo: ChatRepository, calls: CallManager, onCollapse: () -> Boo
     }
 
     LaunchedEffect(callState) {
+        MainActivity.callBusy.value = callState !is CallManager.State.Idle && callState !is CallManager.State.Ended
         when (callState) {
             is CallManager.State.Idle,
             is CallManager.State.Incoming,
@@ -500,14 +504,21 @@ private fun Root(repo: ChatRepository, calls: CallManager, onCollapse: () -> Boo
         locked && repo.prefs.appLock && callState == CallManager.State.Idle -> LockScreen(onUnlock)
         fullCall -> CallScreen(calls = calls, peerName = peerName, onCollapse = onCollapse)
         else -> Box(Modifier.fillMaxSize()) {
+            val life = androidx.lifecycle.compose.LocalLifecycleOwner.current
+            LaunchedEffect(life) {
+                life.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                    repo.messages.collect {
+                        kotlinx.coroutines.delay(600)
+                        val state = calls.state.value
+                        val busy = state !is CallManager.State.Idle && state !is CallManager.State.Ended
+                        ink.jvm.chatter.media.DailySummary.maybeRun(ctx, repo, busy)
+                    }
+                }
+            }
             AnimatedContent(
                 targetState = page,
                 transitionSpec = {
-                    val dir = if (navForward) 1 else -1
-                    val slide = tween<androidx.compose.ui.unit.IntOffset>(280, easing = FastOutSlowInEasing)
-                    val fade = tween<Float>(200)
-                    (slideInHorizontally(slide) { it / 5 * dir } + fadeIn(fade)) togetherWith
-                        (slideOutHorizontally(slide) { -it / 8 * dir } + fadeOut(fade))
+                    Motion.pages(navForward)
                 },
                 label = "page",
             ) { dest ->

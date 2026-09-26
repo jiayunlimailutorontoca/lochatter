@@ -235,6 +235,11 @@ class Prefs(context: Context) {
         get() = sp.getString("cloudLlmModel", "") ?: ""
         set(v) { sp.edit().putString("cloudLlmModel", v).apply() }
 
+    /** Daily digest switch. Uses [summaryModel]. Off until the user turns it on. Does not download. */
+    var dailySummary: Boolean
+        get() = sp.getBoolean("dailySummary", false)
+        set(v) { sp.edit().putBoolean("dailySummary", v).apply() }
+
     /** Fetch OpenGraph cards for links in text messages (the phone contacts the site). */
     var linkPreview: Boolean
         get() = sp.getBoolean("linkPreview", true)

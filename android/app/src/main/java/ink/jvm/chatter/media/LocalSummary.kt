@@ -254,6 +254,12 @@ object LocalSummary {
         return complete(ctx, polishPrompt(draft.take(2000)), onPartial)
     }
 
+    /** Daily digest. Uses the selected channel, the same one as summarize and polish. */
+    suspend fun daily(ctx: Context, source: String, memory: List<String>, onPartial: (String) -> Unit = {}): String {
+        if (source.isBlank()) throw IOException("没有可整理的内容")
+        return complete(ctx, dailyPrompt(source, memory), onPartial)
+    }
+
     suspend fun suggest(ctx: Context, dialog: String, onPartial: (String) -> Unit = {}): List<String> {
         if (dialog.isBlank()) throw IOException("没有可参考的消息")
         val raw = complete(ctx, suggestPrompt(dialog), onPartial)
@@ -488,6 +494,24 @@ object LocalSummary {
 
         $transcript
     """.trimIndent()
+
+    private fun dailyPrompt(source: String, memory: List<String>): String {
+        val remembered = memory.take(12).joinToString("\n") { "- $it" }.ifBlank { "（没有）" }
+        return """
+            只根据今天的聊天原文整理。不要编造原文里没有的事。
+
+            以前记下的短句只作背景。不要写成今天新发生的，除非原文又提到：
+            $remembered
+
+            今天的原文：
+            $source
+
+            严格按三行输出，不要加别的字：
+            聊了什么：一百五十字以内
+            心情：只能写 平稳、开心、担心、生气、说不准 其中一个。判断不了就写 说不准
+            可记住的事：最多三条，用 | 分开。每条都要能在原文里原样找到。没有就只写「可记住的事：」
+        """.trimIndent()
+    }
 
     private fun chatPrompt(dialog: String): String = """
         下面是两人最近的文字消息，每行以说话人开头。用简体中文概括双方聊了什么，一百五十字以内。不要编造。只输出概括。

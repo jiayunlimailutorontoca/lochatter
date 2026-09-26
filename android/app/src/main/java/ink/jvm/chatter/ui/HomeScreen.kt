@@ -135,7 +135,7 @@ fun HomeScreen(
         AnimatedContent(
             targetState = tab,
             modifier = Modifier.fillMaxSize().padding(pad),
-            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
+            transitionSpec = { Motion.tabs(targetState > initialState) },
             label = "home-tab",
         ) { selected ->
             when (selected) {

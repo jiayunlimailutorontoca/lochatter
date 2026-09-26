@@ -405,6 +405,17 @@ fun QuietHoursDialog(repo: ChatRepository, onClose: () -> Unit, onChanged: () ->
 /** Wallpaper, accent colour and bubble shape. */
 @Composable
 fun AppearanceDialog(repo: ChatRepository, onClose: () -> Unit, onPickWallpaper: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("外观") },
+        text = { AppearanceControls(repo, onPickWallpaper) },
+        confirmButton = { TextButton(onClick = onClose) { Text("完成") } },
+    )
+}
+
+/** Theme colour, wallpaper and bubble shape. Writes the same prefs as before. */
+@Composable
+fun AppearanceControls(repo: ChatRepository, onPickWallpaper: () -> Unit) {
     val palette = LocalChatPalette.current
     var accent by remember { mutableStateOf(repo.prefs.accent) }
     var bg by remember { mutableStateOf(repo.prefs.chatBg) }
@@ -413,55 +424,48 @@ fun AppearanceDialog(repo: ChatRepository, onClose: () -> Unit, onPickWallpaper:
         repo.prefs.accent = accent; repo.prefs.chatBg = bg; repo.prefs.bubbleStyle = bubble
         MainActivity.themePrefs.value = Triple(accent, bg, bubble)
     }
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = { Text("外观") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("主题色", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ACCENT_CHOICES.forEach { (key, label, color) ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { accent = key; apply() }) {
-                            Box(Modifier.size(36.dp).clip(CircleShape).background(color).then(if (accent == key) Modifier.padding(0.dp) else Modifier), contentAlignment = Alignment.Center) {
-                                if (accent == key) Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Color.White)
-                            }
-                            Text(label, style = MaterialTheme.typography.labelSmall)
-                        }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("主题色", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ACCENT_CHOICES.forEach { (key, label, color) ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { accent = key; apply() }) {
+                    Box(Modifier.size(36.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
+                        if (accent == key) Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Color.White)
                     }
-                }
-                Text("聊天背景", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                    CHAT_BACKGROUNDS.forEach { (key, label) ->
-                        val on = bg == key
-                        Text(
-                            label, style = MaterialTheme.typography.labelMedium,
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .clickable { bg = key; apply() }.padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onPickWallpaper) { Text("从相册选一张") }
-                    if (bg.startsWith("file:")) TextButton(onClick = { bg = "rose"; apply() }) { Text("去掉图片", color = MaterialTheme.colorScheme.error) }
-                }
-                Text("气泡", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("round" to "圆润", "square" to "方正").forEach { (key, label) ->
-                        val on = bubble == key
-                        Text(
-                            label, style = MaterialTheme.typography.labelMedium,
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .clickable { bubble = key; apply() }.padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-                Box(Modifier.fillMaxWidth().height(70.dp).clip(RoundedCornerShape(12.dp)).background(palette.canvas), contentAlignment = Alignment.Center) {
-                    Text("预览", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    Text(label, style = MaterialTheme.typography.labelSmall)
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onClose) { Text("完成") } },
-    )
+        }
+        Text("聊天背景", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            CHAT_BACKGROUNDS.forEach { (key, label) ->
+                val on = bg == key
+                Text(
+                    label, style = MaterialTheme.typography.labelMedium,
+                    color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .clickable { bg = key; apply() }.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onPickWallpaper) { Text("从相册选一张") }
+            if (bg.startsWith("file:")) TextButton(onClick = { bg = "rose"; apply() }) { Text("去掉图片", color = MaterialTheme.colorScheme.error) }
+        }
+        Text("气泡", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("round" to "圆润", "square" to "方正").forEach { (key, label) ->
+                val on = bubble == key
+                Text(
+                    label, style = MaterialTheme.typography.labelMedium,
+                    color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .clickable { bubble = key; apply() }.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(70.dp).clip(RoundedCornerShape(12.dp)).background(palette.canvas), contentAlignment = Alignment.Center) {
+            Text("预览", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+        }
+    }
 }

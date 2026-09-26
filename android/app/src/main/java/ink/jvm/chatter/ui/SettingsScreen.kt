@@ -19,7 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,54 +71,35 @@ import ink.jvm.chatter.util.UpdateChecker
 import kotlinx.coroutines.launch
 
 /** Full-screen settings: encryption, account, chat, appearance, storage, diagnostics, about. */
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float) -> Unit, onOpenNotes: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val palette = LocalChatPalette.current
-    val e2e by repo.e2eState.collectAsStateWithLifecycle()
     val ttl by repo.ttlSeconds.collectAsStateWithLifecycle()
     val botName by repo.botName.collectAsStateWithLifecycle()
-    val botOnline by repo.botOnline.collectAsStateWithLifecycle()
-    val botTtl by repo.botTtl.collectAsStateWithLifecycle()
     var botMode by remember { mutableStateOf(repo.prefs.botInMain) }
-    var botNotify by remember { mutableStateOf(repo.prefs.botNotify) }
-    var botDrive by remember { mutableStateOf(repo.prefs.botDriveMode) }
-    var botVoice by remember { mutableStateOf(repo.prefs.botVoiceToText) }
-    var cloudStt by remember { mutableStateOf(repo.prefs.cloudStt) }
-    var cloudUrl by remember { mutableStateOf(repo.prefs.cloudSttUrl) }
-    var cloudLlmUrl by remember { mutableStateOf(repo.prefs.cloudLlmUrl) }
-    var cloudLlmKey by remember { mutableStateOf(repo.prefs.cloudLlmKey) }
-    var cloudLlmModel by remember { mutableStateOf(repo.prefs.cloudLlmModel) }
-    var pushProvider by remember { mutableStateOf("off") }
-    var pushSecret by remember { mutableStateOf("") }
-    var pushEvery by remember { mutableStateOf("60") }
-    var pushStyle by remember { mutableStateOf("text") }
-    LaunchedEffect(Unit) {
-        runCatching { repo.api.pushPref() }.onSuccess {
-            pushProvider = it.provider
-            pushSecret = it.secret
-            pushEvery = it.intervalSec.toString()
-            pushStyle = it.style
-        }
-    }
-    var exporting by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    var lock by remember { mutableStateOf(repo.prefs.appLock) }
-    var secure by remember { mutableStateOf(repo.prefs.secureScreen) }
     var verified by remember { mutableStateOf(repo.prefs.e2eVerified) }
-    var scale by remember { mutableStateOf(repo.prefs.fontScale) }
-    var linkPreview by remember { mutableStateOf(repo.prefs.linkPreview) }
-    var wifiOnly by remember { mutableStateOf(repo.prefs.wifiOnlyMedia) }
-    var notifyQuote by remember { mutableStateOf(repo.prefs.notifyQuote) }
     var quietVersion by remember { mutableStateOf(0) }
-    val ringtoneChanged by MainActivity.ringtoneChanged
     var dialog by remember { mutableStateOf<String?>(null) }
     var found by remember { mutableStateOf<ReleaseInfo?>(null) }
-    var checking by remember { mutableStateOf(false) }
-    var updateNote by remember { mutableStateOf<String?>(null) }
-    var cacheBytes by remember { mutableStateOf(-1L) }
-    LaunchedEffect(Unit) { cacheBytes = MediaSaver.cacheBytes(ctx) }
+    var route by remember { mutableStateOf(SettingsRoute.Home) }
+    var routeForward by remember { mutableStateOf(true) }
+    val routeStack = remember { androidx.compose.runtime.mutableStateListOf<SettingsRoute>() }
+    fun pushRoute(next: SettingsRoute) {
+        if (next == route) return
+        routeForward = true
+        routeStack.add(route)
+        route = next
+    }
+    fun popRoute() {
+        if (routeStack.isEmpty()) return
+        routeForward = false
+        route = routeStack.removeAt(routeStack.lastIndex)
+    }
+    androidx.activity.compose.BackHandler(enabled = routeStack.isNotEmpty()) { popRoute() }
     val pickedWallpaper by repo.pickedWallpaper.collectAsStateWithLifecycle()
     LaunchedEffect(pickedWallpaper) {
         val uri = pickedWallpaper ?: return@LaunchedEffect
@@ -142,10 +125,8 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
         "bot" -> BotNameDialog(repo, botName, onClose = { dialog = null })
         "botmode" -> BotModeDialog(botMode, onPick = { botMode = it; repo.prefs.botInMain = it; dialog = null }, onClose = { dialog = null })
         "quick" -> QuickCommandsDialog(repo, onClose = { dialog = null })
-        "llm" -> ModelDialog(onClose = { dialog = null })
         "calls" -> CallStatsDialog(repo, onClose = { dialog = null })
         "quiet" -> QuietHoursDialog(repo, onClose = { dialog = null }, onChanged = { quietVersion++ })
-        "appearance" -> AppearanceDialog(repo, onClose = { dialog = null }, onPickWallpaper = { (ctx as? MainActivity)?.pickWallpaper() })
         "migrate_show" -> MigrateShowDialog(payload = repo.migrationPayload(), onClose = { dialog = null })
         "migrate_scan" -> MigrateScanDialog(
             onResult = { payload ->
@@ -163,339 +144,38 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
         containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text("设置") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
+                title = { Text(route.label) },
+                navigationIcon = {
+                    IconButton(onClick = { if (routeStack.isNotEmpty()) popRoute() else onBack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
     ) { pad ->
-        Column(Modifier.fillMaxSize().background(palette.canvas).padding(pad).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Section("端到端加密") {
-                val (title, hint) = when (e2e) {
-                    ChatRepository.E2eState.OFF -> "未启用" to "等对方升级到新版并上线后自动开启"
-                    ChatRepository.E2eState.ON -> (if (verified) "已启用 · 安全码已核对" else "已启用 · 安全码未核对") to "消息、图片、文件、通话信令都只在两台手机上解密"
-                    ChatRepository.E2eState.PEER_KEY_CHANGED -> "对方的密钥变了" to "对方换了手机或重装了应用，请重新核对安全码"
-                }
-                Item(title, hint, painterResource(R.drawable.ic_shield), tint = if (e2e == ChatRepository.E2eState.PEER_KEY_CHANGED) MaterialTheme.colorScheme.error else palette.online) {
-                    if (e2e != ChatRepository.E2eState.OFF) dialog = "safety"
-                }
-                Item("查看安全码", "两人当面对一下这 60 位数字，一致就没人能窃听") { if (repo.safetyNumber() != null) dialog = "safety" else Toast.makeText(ctx, "对方还没有密钥", Toast.LENGTH_SHORT).show() }
-                Item("迁移到新手机", "新手机扫这里的二维码，密钥和账号一起过去") { dialog = "migrate_show" }
-                Item("从旧手机导入", "扫旧手机上的二维码并输入它显示的 6 位数字") { dialog = "migrate_scan" }
-                val ring = repo.keyRingInfo()
-                Item("密钥轮换", if (ring.epoch == 0) "还没开始（等对方也升级到 1.5）" else "第 ${ring.epoch} 期 · 每周自动换一把会话密钥；对方第 ${ring.peerEpoch} 期" + (if (ring.lastRotationAt > 0) " · 上次 ${fmtTime(ring.lastRotationAt)}" else "")) {
-                    scope.launch { runCatching { repo.rotateNow() }.onSuccess { Toast.makeText(ctx, "已换到新一期密钥", Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(ctx, "轮换失败：${it.message}", Toast.LENGTH_SHORT).show() } }
-                }
-                Item("导出密钥", "换手机时把这串密钥带过去，旧消息才能解密（二维码迁移更方便）") { dialog = "export" }
-                Item("导入密钥", "粘贴另一台手机导出的密钥，并重新同步历史") { dialog = "import" }
-            }
-            Section("账号") {
-                Item("修改密码", "需要输入当前密码") { dialog = "password" }
-                Item("登录设备", "查看并踢出其他登录的手机") { dialog = "devices" }
-                Item("登录网页版", "扫电脑网页上的二维码。密钥只留在那一页，刷新后要重新扫") { dialog = "web_login" }
-            }
-            Section("聊天") {
-                Item("消息定时销毁", "当前：${ChatExport.ttlLabel(ttl)}，对双方都生效") { dialog = "ttl" }
-                Item("外观", "主题色、聊天背景、气泡样式") { dialog = "appearance" }
-                SwitchItem("链接预览", "文字里有网址时显示标题和缩略图（手机会去访问那个网站）", linkPreview) { linkPreview = it; repo.prefs.linkPreview = it }
-                SwitchItem("仅 Wi-Fi 下载原图和文件", "移动数据下打开大图、视频、文件前先问一下", wifiOnly) { wifiOnly = it; repo.prefs.wifiOnlyMedia = it }
-                Item("导出聊天记录", "文本文件，图片和文件只保留名字") { scope.launch { runCatching { ChatExport.share(ctx, repo) }.onFailure { Toast.makeText(ctx, "导出失败：${it.message}", Toast.LENGTH_SHORT).show() } } }
-                Item("导出聊天记录（含图片和文件）", exporting?.let { (d, t) -> "正在打包 $d / $t…" } ?: "zip 包：文字、网页版、解密后的图片和文件") {
-                    if (exporting != null) return@Item
-                    exporting = 0 to 0
-                    scope.launch {
-                        runCatching { ChatExport.shareZip(ctx, repo) { d, t -> exporting = d to t } }.onFailure { Toast.makeText(ctx, "导出失败：${it.message}", Toast.LENGTH_SHORT).show() }
-                        exporting = null
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("字体大小", style = MaterialTheme.typography.bodyLarge)
-                        Text("聊天与界面文字", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    listOf(0.9f to "小", 1f to "标准", 1.15f to "大", 1.3f to "特大").forEach { (v, label) ->
-                        val on = kotlin.math.abs(scale - v) < 0.01f
-                        Text(
-                            label, style = MaterialTheme.typography.labelLarge,
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp).clip(RoundedCornerShape(10.dp))
-                                .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .clickable { scale = v; repo.prefs.fontScale = v; onFontScale(v) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-            }
-            Section("通知与通话") {
-                val ringName = remember(ringtoneChanged) {
-                    repo.prefs.ringtoneUri?.let { u -> runCatching { android.media.RingtoneManager.getRingtone(ctx, android.net.Uri.parse(u))?.getTitle(ctx) }.getOrNull() } ?: "系统默认"
-                }
-                Item("来电铃声", "当前：$ringName") { (ctx as? MainActivity)?.pickRingtone() }
-                val quietHint = remember(quietVersion) {
-                    if (repo.prefs.quietEnabled) "%02d:%02d – %02d:%02d，来电只震动，消息静默".format(repo.prefs.quietStart / 60, repo.prefs.quietStart % 60, repo.prefs.quietEnd / 60, repo.prefs.quietEnd % 60) else "关闭"
-                }
-                Item("免打扰时段", quietHint) { dialog = "quiet" }
-                SwitchItem("引用我的消息单独提示", "对方回复了你的某条消息时用不同的提示音和震动", notifyQuote) { notifyQuote = it; repo.prefs.notifyQuote = it }
-                Item("本月通话统计", "次数、时长、流量") { dialog = "calls" }
-            }
-            Section("离线通知") {
-                Text(
-                    "对方没有连着的时候推到你的手机。带上原文时，服务器用手机交上来的会话密钥解开文字，不会把密文发出去。图片仍只发一句提示。这条设置跟这个账号走。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
-                )
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("off" to "关闭", "serverchan" to "Server酱", "meow" to "MeoW").forEach { (id, label) ->
-                        val on = pushProvider == id
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(RoundedCornerShape(10.dp))
-                                .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .clickable { pushProvider = id }
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-                if (pushProvider != "off") {
-                    OutlinedTextField(
-                        value = pushSecret,
-                        onValueChange = { pushSecret = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        singleLine = true,
-                        label = { Text(if (pushProvider == "meow") "MeoW 昵称" else "Server酱 SendKey") },
-                        placeholder = { Text(if (pushProvider == "meow") "在 MeoW 里看到的昵称" else "sctp…t…") },
-                        visualTransformation = if (pushProvider == "serverchan") PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                    )
-                }
-                Text(
-                    when (pushStyle) {
-                        "hint" -> "lochatter 小明向您发送了消息"
-                        "count" -> "lochatter 小明向您发送了 3 条消息"
-                        else -> "lochatter 小明向您发送了晚饭好了"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-                )
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("hint" to "只说有消息", "text" to "带上原文", "count" to "只报条数").forEach { (id, label) ->
-                        val on = pushStyle == id
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(RoundedCornerShape(10.dp))
-                                .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .clickable { pushStyle = id }
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-                OutlinedTextField(
-                    value = pushEvery,
-                    onValueChange = { pushEvery = it.filter { ch -> ch.isDigit() }.take(5) },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    label = { Text("最少间隔（秒）") },
-                    supportingText = { Text("0 表示每条都推。默认 60。最多一天。") },
-                )
-                Button(
-                    onClick = {
-                        val sec = pushEvery.toIntOrNull()
-                        if (sec == null || sec !in 0..86400) {
-                            Toast.makeText(ctx, "间隔要在 0 到 86400 秒之间", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        scope.launch {
-                            runCatching { repo.api.setPushPref(PushPref(pushProvider, pushSecret.trim(), sec, pushStyle)) }
-                                .onSuccess {
-                                    pushEvery = it.intervalSec.toString()
-                                    pushStyle = it.style.ifBlank { pushStyle }
-                                    Toast.makeText(ctx, "离线通知已保存", Toast.LENGTH_SHORT).show()
-                                }
-                                .onFailure { Toast.makeText(ctx, it.message ?: "保存失败", Toast.LENGTH_LONG).show() }
-                        }
-                    },
-                    modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 12.dp),
-                ) { Text("保存") }
-            }
-            Section("语音识别") {
-                val modelStatus by ink.jvm.chatter.media.LocalStt.status.collectAsStateWithLifecycle()
-                val modelReady = ink.jvm.chatter.media.LocalStt.ready(ctx)
-                Item(
-                    if (modelReady) "本机模型已就绪" else "下载本机模型",
-                    modelStatus ?: if (modelReady) "SenseVoice，转文字和听写都在这台手机上完成" else "约 230 MB，点这里下载。第一次转文字时，Wi-Fi 下也会自动下载",
-                ) {
-                    if (!modelReady && modelStatus == null) {
-                        scope.launch {
-                            runCatching { ink.jvm.chatter.media.LocalStt.ensure(ctx, allowMobile = true) }
-                                .onSuccess { Toast.makeText(ctx, "语音模型已就绪", Toast.LENGTH_SHORT).show() }
-                                .onFailure { Toast.makeText(ctx, it.message ?: "下载失败", Toast.LENGTH_LONG).show() }
-                        }
-                    }
-                }
-                SwitchItem("使用云端识别", "默认关。打开后，转文字和听写改把语音发到下面的地址。", cloudStt) {
-                    cloudStt = it
-                    repo.prefs.cloudStt = it
-                }
-                if (cloudStt) {
-                    OutlinedTextField(
-                        value = cloudUrl,
-                        onValueChange = { cloudUrl = it; repo.prefs.cloudSttUrl = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        singleLine = true,
-                        label = { Text("云端地址") },
-                        placeholder = { Text("https://example.com/v1/audio/transcriptions") },
-                    )
-                    Text(
-                        "填完整的识别接口。自己的聊天服务器就填 https://域名/stt。地址空着时仍用本机。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                    )
-                }
-            }
-            Section("通话纪要") {
-                ink.jvm.chatter.media.LocalSummary.bind(ctx)
-                val modelId by ink.jvm.chatter.media.LocalSummary.choice.collectAsStateWithLifecycle()
-                val model = ink.jvm.chatter.media.LocalSummary.option(modelId)
-                val summaryStatus by ink.jvm.chatter.media.LocalSummary.status.collectAsStateWithLifecycle()
-                val accelNote by ink.jvm.chatter.media.LocalSummary.accelNote.collectAsStateWithLifecycle()
-                val held by ink.jvm.chatter.media.LocalSummary.resident.collectAsStateWithLifecycle()
-                val summaryReady = ink.jvm.chatter.media.LocalSummary.ready(ctx)
-                val heldNote = when {
-                    model.cloud -> ""
-                    held -> " 已在内存里，下次不用再载。"
-                    else -> " 还没载入。第一次整理时才会载入，界面会写明正在载入。"
-                }
-                Item("整理模型", model.title + "。" + model.detail + heldNote + (accelNote ?: "")) { dialog = "llm" }
-                if (model.cloud) {
-                    OutlinedTextField(
-                        value = cloudLlmUrl,
-                        onValueChange = { cloudLlmUrl = it; repo.prefs.cloudLlmUrl = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        singleLine = true,
-                        label = { Text("接口地址") },
-                        placeholder = { Text("https://example.com/v1") },
-                    )
-                    OutlinedTextField(
-                        value = cloudLlmKey,
-                        onValueChange = { cloudLlmKey = it; repo.prefs.cloudLlmKey = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        singleLine = true,
-                        label = { Text("密钥") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        placeholder = { Text("可以留空") },
-                    )
-                    OutlinedTextField(
-                        value = cloudLlmModel,
-                        onValueChange = { cloudLlmModel = it; repo.prefs.cloudLlmModel = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        singleLine = true,
-                        label = { Text("模型名") },
-                        placeholder = { Text("服务商给出的模型名") },
-                    )
-                    Text(
-                        if (summaryReady) {
-                            "总结、润色和建议回复会把文字发到这个地址。通话录音不会发送。生成时逐字显示，可以点停止。"
-                        } else {
-                            "地址须以 http 开头，并填写模型名。密钥可以留空。换回本机模型不会自动下载。"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                    )
-                } else {
-                    Item(
-                        if (summaryReady) "这个模型已就绪" else "下载这个模型",
-                        summaryStatus ?: if (summaryReady) {
-                            "总结摘要、润色和建议回复都在这台手机上，不上传。第一次整理会载入并提示，载好后留在内存里。生成时逐字显示，可以点停止。"
-                        } else {
-                            model.downloadHint
-                        },
-                    ) {
-                        if (!summaryReady && summaryStatus == null) {
-                            scope.launch {
-                                runCatching { ink.jvm.chatter.media.LocalSummary.ensure(ctx) }
-                                    .onSuccess { Toast.makeText(ctx, "纪要模型已就绪", Toast.LENGTH_SHORT).show() }
-                                    .onFailure { Toast.makeText(ctx, it.message ?: "下载失败", Toast.LENGTH_LONG).show() }
-                            }
-                        }
-                    }
-                }
-                Item(
-                    "通话文字记录",
-                    "挂断后按时间列出这台手机说的话。右边的「总结摘要」才调用模型。",
-                ) { onOpenNotes() }
-            }
-            Section("助手") {
-                if (botName.isEmpty()) {
-                    Item("未启用", "服务器还没升级到带助手的版本", painterResource(R.drawable.ic_bot), tint = MaterialTheme.colorScheme.onSurfaceVariant) {}
-                } else {
-                    Item(
-                        "名字：$botName",
-                        if (botOnline) "在线 · 从会话列表，或聊天里的加号进入" else "离线 · NAS 上的 Hermes 没有连到服务器",
-                        painterResource(R.drawable.ic_bot), tint = if (botOnline) palette.online else MaterialTheme.colorScheme.onSurfaceVariant,
-                    ) { dialog = "bot" }
-                    Item(
-                        "在主聊天里",
-                        if (botMode == "hidden") "不显示助手的任何消息，未读记在会话列表里" else "每次 @ 它折叠成一行，点一下去它的页面看回复",
-                    ) { dialog = "botmode" }
-                    Item("快捷指令", "助手页输入框上方的一排按钮，两人共用") { dialog = "quick" }
-                    SwitchItem("回复通知", "它答完了通知发问的那个人（对方问的不通知你）", botNotify) { botNotify = it; repo.prefs.botNotify = it }
-                    SwitchItem("助手页跟随定时销毁", "开着时，问它的和它答的也按「消息定时销毁」到期删除（对双方生效）", botTtl) { v ->
-                        scope.launch { runCatching { repo.setBotTtl(v) }.onFailure { Toast.makeText(ctx, "设置失败：${it.message}", Toast.LENGTH_SHORT).show() } }
-                    }
-                    SwitchItem("开车模式", "它的新回复自动朗读（系统语音）", botDrive) { botDrive = it; repo.prefs.botDriveMode = it }
-                    SwitchItem("语音先转文字再问", "助手页发语音时先识别成文字，识别不了就发语音", botVoice) { botVoice = it; repo.prefs.botVoiceToText = it }
-                    Text(
-                        "助手那一页你们俩共享，不做端到端加密；没 @ 它、也不在它页面里说的话它看不到。销毁只清聊天记录，它自己的会话上下文要用「新对话」清。",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                    )
-                }
-            }
-            Section("安全") {
-                SwitchItem("应用锁", "打开应用时用指纹 / 锁屏密码验证", lock) {
-                    lock = it; repo.prefs.appLock = it
-                    if (!it) MainActivity.locked.value = false
-                }
-                SwitchItem("防截屏", "禁止截图录屏，最近任务里不显示内容", secure) {
-                    secure = it; repo.prefs.secureScreen = it
-                    (ctx as? MainActivity)?.applySecureFlag()
-                }
-            }
-            Section("存储与诊断") {
-                Item("清理缓存", if (cacheBytes >= 0) "图片、语音、分享、链接预览缓存：${fmtSize(cacheBytes)}" else "计算中…") {
-                    MediaSaver.clearCache(ctx)
-                    ink.jvm.chatter.util.LinkPreviews.clearCache(ctx)
-                    cacheBytes = MediaSaver.cacheBytes(ctx)
-                    Toast.makeText(ctx, "已清理", Toast.LENGTH_SHORT).show()
-                }
-                Item("导出诊断信息", "崩溃记录、连接日志，发给开发者定位问题") { runCatching { Diag.share(ctx) }.onFailure { Toast.makeText(ctx, "导出失败：${it.message}", Toast.LENGTH_SHORT).show() } }
-            }
-            Section("关于") {
-                Item("版本 ${BuildConfig.VERSION_NAME}", updateNote ?: (if (checking) "检查中…" else "点击检查更新")) {
-                    if (checking) return@Item
-                    checking = true
-                    scope.launch {
-                        val r = UpdateChecker.check(repo, force = true)
-                        checking = false
-                        if (r != null) found = r else updateNote = "已是最新版本"
-                    }
-                }
-            }
-            Spacer(Modifier.height(24.dp))
+        AnimatedContent(
+            targetState = route,
+            modifier = Modifier.fillMaxSize().background(palette.canvas).padding(pad),
+            transitionSpec = { Motion.pages(routeForward) },
+            label = "settings",
+        ) { dest ->
+            SettingsPane(
+                dest = dest,
+                repo = repo,
+                onDialog = { dialog = it },
+                onFontScale = onFontScale,
+                onOpenNotes = onOpenNotes,
+                onOpen = { pushRoute(it) },
+                onUpdate = { found = it },
+                quietTick = quietVersion,
+            )
         }
     }
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     Column {
         Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
@@ -505,7 +185,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Item(title: String, hint: String, icon: androidx.compose.ui.graphics.painter.Painter? = null, tint: Color = MaterialTheme.colorScheme.primary, onClick: () -> Unit) {
+internal fun Item(title: String, hint: String, icon: androidx.compose.ui.graphics.painter.Painter? = null, tint: Color = MaterialTheme.colorScheme.primary, more: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
@@ -513,13 +193,14 @@ private fun Item(title: String, hint: String, icon: androidx.compose.ui.graphics
         }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (hint.isNotEmpty()) Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        if (more) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun SwitchItem(title: String, hint: String, on: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchItem(title: String, hint: String, on: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
@@ -617,7 +298,7 @@ fun KeyConflictDialog(repo: ChatRepository) {
     AlertDialog(
         onDismissRequest = {},
         title = { Text("这个账号已在另一台手机上启用加密") },
-        text = { Text("要在这台手机上读消息，请从那台手机「设置 → 导出密钥」把密钥粘贴到这里。也可以改用本机的新密钥，但那台手机将无法解密新消息。") },
+        text = { Text("要在这台手机上读消息，请从那台手机「设置 → 加密与安全 → 密钥 → 导出密钥」把密钥粘贴到这里。也可以改用本机的新密钥，但那台手机将无法解密新消息。") },
         confirmButton = { TextButton(onClick = { importing = true }) { Text("导入那台手机的密钥") } },
         dismissButton = {
             TextButton(onClick = { scope.launch { repo.overwriteKey(); Toast.makeText(ctx, "已改用本机密钥", Toast.LENGTH_SHORT).show() } }) { Text("改用本机密钥", color = MaterialTheme.colorScheme.error) }
