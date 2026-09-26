@@ -144,6 +144,7 @@ private fun DetailPage(repo: ChatRepository, note: CallNotes.Note, onBack: () ->
     var busy by remember(note.id) { mutableStateOf(false) }
     var live by remember(note.id) { mutableStateOf("") }
     var stopped by remember(note.id) { mutableStateOf(false) }
+    val phase by LocalSummary.phase.collectAsStateWithLifecycle()
     val work = remember(note.id) { mutableStateOf<Job?>(null) }
     val day = remember { DateTimeFormatter.ofPattern("M月d日 HH:mm") }
     val whenLabel = Instant.ofEpochMilli(note.at).atZone(ZoneId.systemDefault()).format(day)
@@ -209,7 +210,7 @@ private fun DetailPage(repo: ChatRepository, note: CallNotes.Note, onBack: () ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                                     Spacer(Modifier.width(10.dp))
-                                    Text("正在加载模型，第一次会久一些。不会上传。", style = MaterialTheme.typography.bodyMedium)
+                                    Text(phase ?: "正在整理…", style = MaterialTheme.typography.bodyMedium)
                                 }
                             } else {
                                 Text(

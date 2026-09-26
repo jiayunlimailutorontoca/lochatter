@@ -365,8 +365,14 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                 val model = ink.jvm.chatter.media.LocalSummary.option(modelId)
                 val summaryStatus by ink.jvm.chatter.media.LocalSummary.status.collectAsStateWithLifecycle()
                 val accelNote by ink.jvm.chatter.media.LocalSummary.accelNote.collectAsStateWithLifecycle()
+                val held by ink.jvm.chatter.media.LocalSummary.resident.collectAsStateWithLifecycle()
                 val summaryReady = ink.jvm.chatter.media.LocalSummary.ready(ctx)
-                Item("整理模型", model.title + "。" + model.detail + (accelNote ?: "")) { dialog = "llm" }
+                val heldNote = when {
+                    model.cloud -> ""
+                    held -> " 已在内存里，下次不用再载。"
+                    else -> " 还没载入。第一次整理时才会载入，界面会写明正在载入。"
+                }
+                Item("整理模型", model.title + "。" + model.detail + heldNote + (accelNote ?: "")) { dialog = "llm" }
                 if (model.cloud) {
                     OutlinedTextField(
                         value = cloudLlmUrl,
@@ -407,7 +413,7 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                     Item(
                         if (summaryReady) "这个模型已就绪" else "下载这个模型",
                         summaryStatus ?: if (summaryReady) {
-                            "总结摘要、润色和建议回复都在这台手机上，不上传。生成时逐字显示，可以点停止。"
+                            "总结摘要、润色和建议回复都在这台手机上，不上传。第一次整理会载入并提示，载好后留在内存里。生成时逐字显示，可以点停止。"
                         } else {
                             model.downloadHint
                         },
@@ -747,7 +753,7 @@ private fun ModelDialog(onClose: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "Qwen3 0.6B、1.7B、4B 在这台手机的 GPU 上运行，不上传。选云端接口时，要整理的文字会发到你填的地址。换型号不会自动下载。",
+                    "Qwen3 0.6B、1.7B、4B 在这台手机的 GPU 上运行，不上传。第一次整理时才载入，界面会写明正在载入，载好后留在内存里。选云端接口时，要整理的文字会发到你填的地址。换型号不会自动下载。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

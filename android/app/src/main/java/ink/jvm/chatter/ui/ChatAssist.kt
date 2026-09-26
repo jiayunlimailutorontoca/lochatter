@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ink.jvm.chatter.data.ChatRepository
 import ink.jvm.chatter.data.LocalMessage
 import ink.jvm.chatter.media.LocalSummary
@@ -57,6 +58,7 @@ internal fun ChatAssistDialog(
     var stopped by remember(request) { mutableStateOf(false) }
     val scroll = rememberScrollState()
     val work = remember(request) { mutableStateOf<Job?>(null) }
+    val phase by LocalSummary.phase.collectAsStateWithLifecycle()
     LaunchedEffect(body) { scroll.scrollTo(scroll.maxValue) }
     LaunchedEffect(request) {
         val req = request ?: return@LaunchedEffect
@@ -129,10 +131,7 @@ internal fun ChatAssistDialog(
                     running -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text(
-                            "正在加载模型，第一次会久一些。文字还在这台手机上，不会上传。",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Text(phase ?: "正在整理…", style = MaterialTheme.typography.bodyMedium)
                     }
                     stopped -> Text("已停止。", style = MaterialTheme.typography.bodyMedium)
                     else -> Text("没有整理出内容", style = MaterialTheme.typography.bodyMedium)

@@ -135,6 +135,14 @@ object LocalSummary {
     private val _accelNote = MutableStateFlow<String?>(null)
     val accelNote: StateFlow<String?> = _accelNote.asStateFlow()
 
+    /** What the summary screen should say while a run has not produced text yet. */
+    private val _phase = MutableStateFlow<String?>(null)
+    val phase: StateFlow<String?> = _phase.asStateFlow()
+
+    /** True after the selected on-device weight has been opened and is still held. */
+    private val _resident = MutableStateFlow(false)
+    val resident: StateFlow<Boolean> = _resident.asStateFlow()
+
     internal fun setAccelNote(text: String?) {
         _accelNote.value = text
     }
@@ -181,7 +189,7 @@ object LocalSummary {
         return if (current(ctx).cloud) "先填写云端接口" else "先下载纪要模型"
     }
 
-    /** Drop a cached engine. Safe to call when the system wants memory back. */
+    /** Drop a cached engine. Used when the selected weight changes, or a load fails. */
     fun release() {
         if (!gate.tryLock()) return
         try {
@@ -272,11 +280,17 @@ object LocalSummary {
                 throw IOException("这台手机内存不到 8 GB，换 Qwen3 1.7B 或 Qwen3 0.6B")
             }
             gate.withLock {
-                ensureActive()
-                if (model.cloud) return@withLock cloudComplete(ctx, text, onPartial)
-                val job = coroutineContext[Job]
                 try {
+                    ensureActive()
+                    if (model.cloud) {
+                        _phase.value = "正在把文字发到云端接口…"
+                        return@withLock cloudComplete(ctx, text, onPartial)
+                    }
+                    val warm = session != null && sessionId == model.id
+                    _phase.value = if (warm) "正在整理…" else "正在载入 ${model.title}。这一次会久一些，载好后留在内存里，下次不用再载。"
+                    val job = coroutineContext[Job]
                     val engine = engineFor(ctx, model)
+                    _phase.value = "正在整理…"
                     ensureActive()
                     runCatching { engine.reset() }
                     val raw = StringBuilder()
@@ -312,6 +326,8 @@ object LocalSummary {
                     releaseEngine()
                     val msg = e.message?.takeIf { it.isNotBlank() } ?: "GPU 没有打开"
                     throw IOException(msg)
+                } finally {
+                    _phase.value = null
                 }
             }
         }
@@ -337,6 +353,7 @@ object LocalSummary {
         }
         session = created
         sessionId = model.id
+        _resident.value = true
         return created
     }
 
@@ -462,6 +479,7 @@ object LocalSummary {
         val current = session
         session = null
         sessionId = null
+        _resident.value = false
         current?.close()
     }
 
