@@ -1,0 +1,4 @@
+libMNN.so and libmnnllmapp.so are from Alibaba MNN (MnnLlmChat 0.8.3, engine 3.6.1).
+Copyright (c) 2018-present Alibaba Group Holding Limited
+Licensed under the Apache License, Version 2.0. See MNN-LICENSE.txt.
+https://github.com/alibaba/MNN

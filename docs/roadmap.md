@@ -1,6 +1,6 @@
 # 版本记录
 
-记录截至 2.5.3 已经发布的行为。未实现的原计划单独列出，不记入对应版本的交付范围。
+记录截至 2.5.4 已经发布的行为。未实现的原计划单独列出，不记入对应版本的交付范围。
 
 | 版本 | 交付内容 |
 |---|---|
@@ -29,6 +29,7 @@
 | 2.5.1 | 无协议变更，服务端仍为 2.3.0。Android `versionCode` 51。聊天页右上角去掉语音通话、视频通话和助手入口，这三项改在加号面板。见 [protocol-2.5.1.md](protocol-2.5.1.md) |
 | 2.5.2 | 无协议变更，服务端仍为 2.3.0。Android `versionCode` 52。整理模型增加 Qwen3.5 2B GGUF，骁龙 8 Gen 2 及以上已打包的 Hexagon 走 NPU。见 [protocol-2.5.2.md](protocol-2.5.2.md) |
 | 2.5.3 | 无协议变更，服务端仍为 2.3.0。Android `versionCode` 53。三档 LiteRT 权重改走 GPU。GGUF 一档在列出的骁龙上走 NPU，其余走 GPU，不得再走 CPU。见 [protocol-2.5.3.md](protocol-2.5.3.md) |
+| 2.5.4 | 无协议变更，服务端仍为 2.3.0。Android `versionCode` 54。本机整理改用 MNN，可选 Qwen3 0.6B、1.7B、4B，走 GPU，不得走 CPU，也不再加载高通 NPU。用户可改填云端接口。见 [protocol-2.5.4.md](protocol-2.5.4.md) |
 
 ## 未实现
 

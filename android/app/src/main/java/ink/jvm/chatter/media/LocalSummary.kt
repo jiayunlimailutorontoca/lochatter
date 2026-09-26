@@ -5,19 +5,12 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.ConversationConfig
-import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.Message
-import com.google.ai.edge.litertlm.MessageCallback
-import com.google.ai.edge.litertlm.SamplerConfig
-import com.google.ai.edge.litertlm.ThinkingConfig
+import com.alibaba.mnnllm.android.llm.GenerateProgressListener
+import com.alibaba.mnnllm.android.llm.LlmSession
 import ink.jvm.chatter.data.Prefs
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,96 +18,98 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
 
 /**
- * On-device text help. The three LiteRT-LM Qwen files run on the GPU.
- * The GGUF option goes through HexagonSummary: Hexagon NPU on listed Snapdragon
- * chips, GPU everywhere else. Weights download from ModelScope. Chat text never leaves the phone.
+ * On-device text help through MNN on the GPU, plus an optional cloud endpoint the user fills in.
+ * The three Qwen3 files download from ModelScope. They are not inside the APK.
+ * Chat text leaves the phone only when the user has selected the cloud endpoint.
  */
 object LocalSummary {
+    data class Piece(val name: String, val minBytes: Long)
+
     data class Option(
         val id: String,
         val title: String,
         val detail: String,
         val downloadHint: String,
-        val fileName: String,
-        val minBytes: Long,
+        val repo: String,
+        val pieces: List<Piece>,
         val minFree: Long,
-        val context: Int,
         val needEightGb: Boolean,
-        val urls: List<String>,
-        val geniex: Boolean = false,
+        val cloud: Boolean = false,
     )
 
-    private const val DEFAULT_ID = "qwen35-4b"
+    private const val DEFAULT_ID = "qwen3-1.7b"
+    private val jsonType = "application/json; charset=utf-8".toMediaType()
+
+    private fun local(id: String, title: String, detail: String, hint: String, repo: String, weightMin: Long, minFree: Long, eight: Boolean) =
+        Option(
+            id = id,
+            title = title,
+            detail = detail,
+            downloadHint = hint,
+            repo = repo,
+            pieces = listOf(
+                Piece("config.json", 100),
+                Piece("llm.mnn", 100_000),
+                Piece("llm.mnn.weight", weightMin),
+                Piece("llm_config.json", 100),
+                Piece("tokenizer.txt", 100_000),
+            ),
+            minFree = minFree,
+            needEightGb = eight,
+        )
 
     private val options = listOf(
-        Option(
-            id = "qwen35-4b",
-            title = "Qwen3.5 4B",
-            detail = "默认。没有正好 3B 的端侧文件，这是最接近的一档。约 2.6 GB，走 GPU，手机内存要有 8 GB。只处理文字。",
-            downloadHint = "约 2.6 GB，另外还要留出大约 3 GB 给第一次运行的缓存。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
-            fileName = "Qwen3.5-4B_mixed_int4.litertlm",
-            minBytes = 2_200_000_000L,
-            minFree = 6L * 1024 * 1024 * 1024,
-            context = 4096,
-            needEightGb = true,
-            urls = listOf(
-                "https://www.modelscope.cn/api/v1/models/litert-community/Qwen3.5-4B/repo?Revision=master&FilePath=Qwen3.5-4B_mixed_int4.litertlm",
-                "https://www.modelscope.cn/models/litert-community/Qwen3.5-4B/resolve/master/Qwen3.5-4B_mixed_int4.litertlm",
-            ),
+        local(
+            id = "qwen3-0.6b",
+            title = "Qwen3 0.6B",
+            detail = "最小的一档。约 0.5 GB。走 GPU。只处理文字。",
+            hint = "约 0.5 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
+            repo = "MNN/Qwen3-0.6B-MNN",
+            weightMin = 400_000_000L,
+            minFree = 800L * 1024 * 1024,
+            eight = false,
         ),
-        Option(
-            id = "qwen35-2b-npu",
-            title = "Qwen3.5 2B · 高通 NPU",
-            detail = "GGUF Q4_0，约 1.2 GB。骁龙 8 Gen 2、8 Gen 3、8 Elite 走 Hexagon NPU。打不开，或者不是这几款，就走 GPU。只处理文字。",
-            downloadHint = "约 1.2 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
-            fileName = "Qwen3.5-2B-Q4_0.gguf",
-            minBytes = 1_100_000_000L,
-            minFree = 2_500_000_000L,
-            context = 4096,
-            needEightGb = false,
-            urls = listOf(
-                "https://www.modelscope.cn/api/v1/models/unsloth/Qwen3.5-2B-GGUF/repo?Revision=master&FilePath=Qwen3.5-2B-Q4_0.gguf",
-                "https://www.modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q4_0.gguf",
-            ),
-            geniex = true,
-        ),
-        Option(
-            id = "qwen35-2b",
-            title = "Qwen3.5 2B",
-            detail = "更小一档。约 2.0 GB。走 GPU。只处理文字。",
-            downloadHint = "约 2.0 GB，第一次运行还要一些缓存空间。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
-            fileName = "Qwen3.5-2B_int8.litertlm",
-            minBytes = 1_600_000_000L,
-            minFree = 4_500_000_000L,
-            context = 4096,
-            needEightGb = false,
-            urls = listOf(
-                "https://www.modelscope.cn/api/v1/models/litert-community/Qwen3.5-2B/repo?Revision=master&FilePath=Qwen3.5-2B_int8.litertlm",
-                "https://www.modelscope.cn/models/litert-community/Qwen3.5-2B/resolve/master/Qwen3.5-2B_int8.litertlm",
-            ),
-        ),
-        Option(
+        local(
             id = "qwen3-1.7b",
             title = "Qwen3 1.7B",
-            detail = "更轻，约 1 GB。走 GPU。内存紧张时用这个。只处理文字。",
-            downloadHint = "约 1 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
-            fileName = "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",
-            minBytes = 700_000_000L,
-            minFree = 2_200_000_000L,
-            context = 4096,
+            detail = "默认。约 1.2 GB。走 GPU。只处理文字。",
+            hint = "约 1.2 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
+            repo = "MNN/Qwen3-1.7B-MNN",
+            weightMin = 1_100_000_000L,
+            minFree = 2L * 1024 * 1024 * 1024,
+            eight = false,
+        ),
+        local(
+            id = "qwen3-4b",
+            title = "Qwen3 4B",
+            detail = "更大一档。约 2.7 GB。走 GPU。手机内存要有 8 GB。只处理文字。",
+            hint = "约 2.7 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
+            repo = "MNN/Qwen3-4B-MNN",
+            weightMin = 2_400_000_000L,
+            minFree = 4L * 1024 * 1024 * 1024,
+            eight = true,
+        ),
+        Option(
+            id = "cloud",
+            title = "云端接口",
+            detail = "把要整理的文字发到你填的地址。接口按 OpenAI 的对话格式。",
+            downloadHint = "在设置里填写接口地址和模型名。密钥可以留空。",
+            repo = "",
+            pieces = emptyList(),
+            minFree = 0,
             needEightGb = false,
-            urls = listOf(
-                "https://www.modelscope.cn/api/v1/models/litert-community/Qwen3-1.7B/repo?Revision=master&FilePath=Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",
-                "https://www.modelscope.cn/models/litert-community/Qwen3-1.7B/resolve/master/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm",
-            ),
+            cloud = true,
         ),
     )
 
@@ -128,8 +123,8 @@ object LocalSummary {
 
     private val gate = Mutex()
     private val main = Handler(Looper.getMainLooper())
-    private var engine: Engine? = null
-    private var engineId: String? = null
+    private var session: LlmSession? = null
+    private var sessionId: String? = null
 
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status.asStateFlow()
@@ -148,7 +143,7 @@ object LocalSummary {
 
     fun options(): List<Option> = options
 
-    fun option(id: String): Option = byId[id] ?: options.first()
+    fun option(id: String): Option = byId[id] ?: options.first { it.id == DEFAULT_ID }
 
     fun bind(ctx: Context) {
         val id = canonical(Prefs(ctx).summaryModel)
@@ -157,13 +152,13 @@ object LocalSummary {
 
     fun current(ctx: Context): Option = option(canonical(Prefs(ctx).summaryModel))
 
-    /** Switch the weight file used next time. Does not download. */
+    /** Switch the weight used next time. Does not download and does not call the cloud. */
     fun select(ctx: Context, id: String) {
         val next = canonical(id)
         Prefs(ctx).summaryModel = next
         _choice.value = next
         _accelNote.value = null
-        if ((engineId != next || nextOptionIsGeniex(next)) && gate.tryLock()) {
+        if (sessionId != next && gate.tryLock()) {
             try {
                 releaseEngine()
             } finally {
@@ -172,7 +167,19 @@ object LocalSummary {
         }
     }
 
-    fun ready(ctx: Context): Boolean = fileOf(ctx, current(ctx)).let { it.isFile && it.length() > current(ctx).minBytes }
+    fun ready(ctx: Context): Boolean {
+        val model = current(ctx)
+        if (model.cloud) return cloudReady(ctx)
+        return model.pieces.all { piece ->
+            fileOf(ctx, model, piece.name).let { it.isFile && it.length() >= piece.minBytes }
+        }
+    }
+
+    /** Sentence for the toast when a summary action cannot start. Null when it can. */
+    fun unavailable(ctx: Context): String? {
+        if (ready(ctx)) return null
+        return if (current(ctx).cloud) "先填写云端接口" else "先下载纪要模型"
+    }
 
     /** Drop a cached engine. Safe to call when the system wants memory back. */
     fun release() {
@@ -184,29 +191,40 @@ object LocalSummary {
         }
     }
 
-    /** Download the selected weight file. Call this only from the settings download row, never from a summary action and never from a call. */
+    /** Download the selected weight. Call this only from the settings download row. */
     suspend fun ensure(ctx: Context) = withContext(Dispatchers.IO) {
         gate.withLock {
             try {
                 val model = current(ctx)
+                if (model.cloud) {
+                    if (!cloudReady(ctx)) throw IOException("先填写云端接口")
+                    return@withLock
+                }
                 if (ready(ctx)) return@withLock
                 val free = StatFs(ctx.filesDir.absolutePath).availableBytes
                 if (free < model.minFree) {
                     throw IOException("存储空间不够，${model.title} 大约需要 ${model.minFree / (1024 * 1024)} MB 空闲空间")
                 }
-                val dest = fileOf(ctx, model)
-                val errors = mutableListOf<String>()
-                for (url in model.urls) {
-                    try {
-                        download(model, url, dest)
-                        if (dest.isFile && dest.length() > model.minBytes) return@withLock
-                        errors += "文件不完整"
-                    } catch (e: Exception) {
-                        dest.delete()
-                        errors += e.message ?: url
+                for (piece in model.pieces) {
+                    val dest = fileOf(ctx, model, piece.name)
+                    if (dest.isFile && dest.length() >= piece.minBytes) continue
+                    val errors = mutableListOf<String>()
+                    var ok = false
+                    for (url in urls(model.repo, piece.name)) {
+                        try {
+                            download(model, piece.name, url, dest, piece.minBytes)
+                            if (dest.isFile && dest.length() >= piece.minBytes) {
+                                ok = true
+                                break
+                            }
+                            errors += "文件不完整"
+                        } catch (e: Exception) {
+                            dest.delete()
+                            errors += e.message ?: url
+                        }
                     }
+                    if (!ok) throw IOException(errors.lastOrNull()?.let { "${model.title} 下载失败：$it" } ?: "${model.title} 下载失败")
                 }
-                throw IOException(errors.lastOrNull()?.let { "${model.title} 下载失败：$it" } ?: "${model.title} 下载失败")
             } finally {
                 _status.value = null
             }
@@ -245,139 +263,207 @@ object LocalSummary {
         .toList()
 
     private suspend fun complete(ctx: Context, prompt: String, onPartial: (String) -> Unit): String =
-        withContext(Dispatchers.Default) {
+        withContext(Dispatchers.IO) {
             val text = prompt.trim()
             if (text.isEmpty()) throw IOException("没有可整理的内容")
             val model = current(ctx)
-            if (!ready(ctx)) throw IOException("纪要模型未就绪")
-            if (model.needEightGb && totalRam(ctx) < 7L * 1024 * 1024 * 1024) {
-                throw IOException("这台手机内存不到 8 GB，换 Qwen3.5 2B 或 Qwen3 1.7B")
+            if (!ready(ctx)) throw IOException(unavailable(ctx) ?: "纪要模型未就绪")
+            if (!model.cloud && model.needEightGb && totalRam(ctx) < 7L * 1024 * 1024 * 1024) {
+                throw IOException("这台手机内存不到 8 GB，换 Qwen3 1.7B 或 Qwen3 0.6B")
             }
             gate.withLock {
                 ensureActive()
-                if (model.geniex) {
-                    releaseLitert()
-                    return@withLock HexagonSummary.generate(ctx, model, text, onPartial)
-                }
-                _accelNote.value = " 当前走 GPU。"
-                HexagonSummary.release()
-                val llm = try {
-                    engineFor(ctx, model)
-                } catch (e: OutOfMemoryError) {
-                    releaseEngine()
-                    throw IOException("内存不够，关掉别的应用，或换一个更小的模型")
-                }
-                ensureActive()
-                val conversation = llm.createConversation(
-                    ConversationConfig(
-                        samplerConfig = SamplerConfig(topK = 40, topP = 0.9, temperature = 0.4),
-                        channels = emptyList(),
-                        maxOutputToken = 512,
-                        thinkingConfig = ThinkingConfig(enableThinking = false),
-                    ),
-                )
+                if (model.cloud) return@withLock cloudComplete(ctx, text, onPartial)
+                val job = coroutineContext[Job]
                 try {
-                    val deferred = CompletableDeferred<String>()
+                    val engine = engineFor(ctx, model)
+                    ensureActive()
+                    runCatching { engine.reset() }
                     val raw = StringBuilder()
-                    val alive = AtomicBoolean(true)
-                    fun publish() {
-                        val shown = visible(raw.toString())
-                        if (alive.get()) main.post { if (alive.get()) onPartial(shown) }
-                    }
-                    conversation.sendMessageAsync(
-                        text,
-                        object : MessageCallback {
-                            override fun onMessage(message: Message) {
-                                val chunk = message.toString()
+                    engine.submit(text, object : GenerateProgressListener {
+                        override fun onProgress(progress: String?): Boolean {
+                            if (!progress.isNullOrEmpty()) {
                                 val soFar = raw.toString()
-                                raw.clear()
-                                raw.append(if (chunk.startsWith(soFar)) chunk else soFar + chunk)
-                                publish()
-                            }
-
-                            override fun onDone() {
-                                if (!deferred.isCompleted) deferred.complete(visible(raw.toString()).trim())
-                            }
-
-                            override fun onError(throwable: Throwable) {
-                                if (throwable is kotlinx.coroutines.CancellationException) {
-                                    if (!deferred.isCompleted) deferred.complete(visible(raw.toString()).trim())
-                                } else if (!deferred.isCompleted) {
-                                    deferred.completeExceptionally(IOException(throwable.message ?: "整理失败", throwable))
+                                if (progress.startsWith(soFar)) {
+                                    raw.clear()
+                                    raw.append(progress)
+                                } else {
+                                    raw.append(progress)
                                 }
+                                val shown = visible(raw.toString())
+                                if (job?.isActive != false) main.post { if (job?.isActive != false) onPartial(shown) }
                             }
-                        },
-                        maxOutputToken = 512,
-                        thinkingConfig = ThinkingConfig(enableThinking = false),
-                    )
-                    try {
-                        val out = deferred.await()
-                        alive.set(false)
-                        if (out.isEmpty()) throw IOException("没有整理出内容")
-                        out
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        alive.set(false)
-                        withContext(NonCancellable) {
-                            runCatching { conversation.cancelProcess() }
-                            val deadline = System.nanoTime() + 2_000_000_000L
-                            while (!deferred.isCompleted && System.nanoTime() < deadline) delay(40)
+                            return job?.isActive == false
                         }
-                        throw e
-                    }
-                } catch (e: IOException) {
+                    })
+                    if (job?.isActive == false) throw CancellationException()
+                    _accelNote.value = " 当前走 GPU。"
+                    val out = visible(raw.toString()).trim()
+                    if (out.isEmpty()) throw IOException("没有整理出内容")
+                    out
+                } catch (e: CancellationException) {
                     throw e
-                } catch (e: kotlinx.coroutines.CancellationException) {
+                } catch (e: IOException) {
                     throw e
                 } catch (e: OutOfMemoryError) {
                     releaseEngine()
                     throw IOException("内存不够，关掉别的应用，或换一个更小的模型")
                 } catch (e: Exception) {
-                    throw IOException(e.message ?: "整理失败")
-                } finally {
-                    withContext(NonCancellable) {
-                        runCatching { conversation.close() }
-                        if (engineId != current(ctx).id) releaseEngine()
-                    }
+                    releaseEngine()
+                    val msg = e.message?.takeIf { it.isNotBlank() } ?: "GPU 没有打开"
+                    throw IOException(msg)
                 }
             }
         }
 
-    private fun engineFor(ctx: Context, model: Option): Engine {
-        val cached = engine
-        if (cached != null && engineId == model.id) return cached
+    private fun engineFor(ctx: Context, model: Option): LlmSession {
+        val cached = session
+        if (cached != null && sessionId == model.id) return cached
         releaseEngine()
-        val created = Engine(
-            EngineConfig(
-                modelPath = fileOf(ctx, model).absolutePath,
-                backend = Backend.GPU(),
-                maxNumTokens = model.context,
-                cacheDir = File(dir(ctx), "cache-${model.id}").apply { mkdirs() }.absolutePath,
-            ),
-        )
+        val folder = dir(ctx, model)
+        val config = gpuConfig(folder)
+        val extra = JSONObject()
+            .put("is_r1", false)
+            .put("mmap_dir", File(folder, "mmap").apply { mkdirs() }.absolutePath)
+            .put("keep_history", false)
+            .toString()
+        val created = LlmSession()
         try {
-            created.initialize()
+            created.open(config.absolutePath, config.readText(), extra)
         } catch (e: Throwable) {
-            runCatching { created.close() }
-            throw e
+            created.close()
+            if (e is IOException) throw e
+            throw IOException(e.message?.takeIf { it.isNotBlank() } ?: "GPU 没有打开", e)
         }
-        engine = created
-        engineId = model.id
+        session = created
+        sessionId = model.id
         return created
     }
 
+    private fun gpuConfig(folder: File): File {
+        val raw = JSONObject(File(folder, "config.json").readText())
+        raw.put("backend_type", "opencl")
+        raw.put("max_new_tokens", 512)
+        raw.put("enable_thinking", false)
+        raw.put("temperature", 0.4)
+        raw.put("topK", 40)
+        raw.put("topP", 0.9)
+        val out = File(folder, "config.gpu.json")
+        out.writeText(raw.toString())
+        return out
+    }
+
+    private suspend fun cloudComplete(ctx: Context, text: String, onPartial: (String) -> Unit): String {
+        val prefs = Prefs(ctx)
+        val url = endpoint(prefs.cloudLlmUrl)
+        val modelName = prefs.cloudLlmModel.trim()
+        val body = JSONObject()
+            .put("model", modelName)
+            .put("temperature", 0.4)
+            .put("max_tokens", 512)
+            .put("stream", true)
+            .put("messages", org.json.JSONArray().put(JSONObject().put("role", "user").put("content", text)))
+            .toString()
+        val req = Request.Builder()
+            .url(url)
+            .header("Content-Type", "application/json")
+            .apply {
+                val key = prefs.cloudLlmKey.trim()
+                if (key.isNotEmpty()) header("Authorization", "Bearer $key")
+            }
+            .post(body.toRequestBody(jsonType))
+            .build()
+        val call = http.newCall(req)
+        coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) call.cancel()
+        }
+        val raw = StringBuilder()
+        try {
+            call.execute().use { resp ->
+                val payload = resp.body ?: throw IOException("空响应")
+                if (!resp.isSuccessful) {
+                    val err = payload.string().take(300)
+                    throw IOException(cloudError(resp.code, err))
+                }
+                payload.byteStream().bufferedReader(Charsets.UTF_8).use { reader ->
+                    val first = StringBuilder()
+                    while (true) {
+                        coroutineContext.ensureActive()
+                        val line = reader.readLine() ?: break
+                        if (first.isEmpty() && line.isBlank()) continue
+                        if (first.isEmpty() && !line.startsWith("data:")) {
+                            first.append(line)
+                            val rest = reader.readText()
+                            val whole = first.toString() + rest
+                            raw.append(messageContent(whole))
+                            break
+                        }
+                        if (!line.startsWith("data:")) continue
+                        val data = line.removePrefix("data:").trim()
+                        if (data == "[DONE]") break
+                        val piece = runCatching { deltaContent(data) }.getOrDefault("")
+                        if (piece.isEmpty()) continue
+                        raw.append(piece)
+                        val shown = visible(raw.toString())
+                        main.post { onPartial(shown) }
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            call.cancel()
+            throw e
+        } catch (e: IOException) {
+            call.cancel()
+            throw e
+        } catch (e: Exception) {
+            call.cancel()
+            throw IOException(e.message ?: "云端接口失败")
+        }
+        _accelNote.value = " 当前走云端接口。"
+        val out = visible(raw.toString()).trim()
+        if (out.isEmpty()) throw IOException("没有整理出内容")
+        return out
+    }
+
+    private fun cloudReady(ctx: Context): Boolean {
+        val prefs = Prefs(ctx)
+        return prefs.cloudLlmUrl.trim().startsWith("http") && prefs.cloudLlmModel.trim().isNotEmpty()
+    }
+
+    private fun endpoint(raw: String): String {
+        val t = raw.trim().trimEnd('/')
+        if (t.endsWith("/chat/completions")) return t
+        if (t.endsWith("/v1")) return "$t/chat/completions"
+        return "$t/v1/chat/completions"
+    }
+
+    private fun deltaContent(data: String): String {
+        val choice = JSONObject(data).optJSONArray("choices")?.optJSONObject(0) ?: return ""
+        val delta = choice.optJSONObject("delta")
+        if (delta != null) return delta.optString("content", "")
+        return choice.optJSONObject("message")?.optString("content", "") ?: ""
+    }
+
+    private fun messageContent(whole: String): String {
+        val root = runCatching { JSONObject(whole) }.getOrNull() ?: return whole
+        if (root.has("error")) throw IOException(cloudError(0, whole))
+        return deltaContent(whole).ifEmpty {
+            root.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message")?.optString("content", "") ?: ""
+        }
+    }
+
+    private fun cloudError(code: Int, body: String): String {
+        val msg = runCatching { JSONObject(body).optJSONObject("error")?.optString("message") }.getOrNull()
+        val text = msg?.takeIf { it.isNotBlank() } ?: "云端接口失败"
+        return if (code > 0) "$text（HTTP $code）" else text
+    }
+
     private fun releaseEngine() {
-        releaseLitert()
-        HexagonSummary.release()
+        val current = session
+        session = null
+        sessionId = null
+        current?.close()
     }
-
-    private fun releaseLitert() {
-        val current = engine
-        engine = null
-        engineId = null
-        if (current != null) runCatching { current.close() }
-    }
-
-    private fun nextOptionIsGeniex(id: String) = byId[id]?.geniex == true
 
     private fun prompt(transcript: String): String = """
         下面是这台手机麦克风在通话里听到的话，每行开头是时间，只有这一方，没有对方。请用简体中文写一段简短纪要，一百五十字以内。不要编造没有出现的内容，不要写成双方对话。内容很少就概括那一两句。只输出纪要。
@@ -403,9 +489,14 @@ object LocalSummary {
         $dialog
     """.trimIndent()
 
-    private fun dir(ctx: Context) = File(ctx.filesDir, "llm").apply { mkdirs() }
+    private fun dir(ctx: Context, model: Option) = File(File(ctx.filesDir, "llm"), model.id).apply { mkdirs() }
 
-    private fun fileOf(ctx: Context, model: Option) = File(dir(ctx), model.fileName)
+    private fun fileOf(ctx: Context, model: Option, name: String) = File(dir(ctx, model), name)
+
+    private fun urls(repo: String, name: String) = listOf(
+        "https://www.modelscope.cn/api/v1/models/$repo/repo?Revision=master&FilePath=$name",
+        "https://www.modelscope.cn/models/$repo/resolve/master/$name",
+    )
 
     private fun canonical(id: String) = if (byId.containsKey(id)) id else DEFAULT_ID
 
@@ -421,7 +512,7 @@ object LocalSummary {
         return if (open >= 0) closed.substring(0, open) else closed
     }
 
-    private fun download(model: Option, url: String, dest: File) {
+    private fun download(model: Option, name: String, url: String, dest: File, minBytes: Long) {
         val part = File(dest.parentFile, dest.name + ".part")
         val call = http.newCall(Request.Builder().url(url).header("User-Agent", "lochatter").build())
         try {
@@ -440,7 +531,7 @@ object LocalSummary {
                             out.write(buf, 0, n)
                             got += n
                             _status.value = if (total > 0) "正在下载 ${model.title} ${got * 100 / total}%"
-                            else "正在下载 ${model.title} ${got / (1024 * 1024)} MB"
+                            else "正在下载 ${model.title} ${name} ${got / (1024 * 1024)} MB"
                         }
                     }
                 }
@@ -449,7 +540,7 @@ object LocalSummary {
             part.delete()
             throw e
         }
-        if (part.length() < model.minBytes) {
+        if (part.length() < minBytes) {
             part.delete()
             throw IOException("下载不完整")
         }

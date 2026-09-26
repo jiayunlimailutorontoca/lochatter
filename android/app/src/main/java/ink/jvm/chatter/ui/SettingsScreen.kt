@@ -86,6 +86,9 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
     var botVoice by remember { mutableStateOf(repo.prefs.botVoiceToText) }
     var cloudStt by remember { mutableStateOf(repo.prefs.cloudStt) }
     var cloudUrl by remember { mutableStateOf(repo.prefs.cloudSttUrl) }
+    var cloudLlmUrl by remember { mutableStateOf(repo.prefs.cloudLlmUrl) }
+    var cloudLlmKey by remember { mutableStateOf(repo.prefs.cloudLlmKey) }
+    var cloudLlmModel by remember { mutableStateOf(repo.prefs.cloudLlmModel) }
     var pushProvider by remember { mutableStateOf("off") }
     var pushSecret by remember { mutableStateOf("") }
     var pushEvery by remember { mutableStateOf("60") }
@@ -364,19 +367,57 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                 val accelNote by ink.jvm.chatter.media.LocalSummary.accelNote.collectAsStateWithLifecycle()
                 val summaryReady = ink.jvm.chatter.media.LocalSummary.ready(ctx)
                 Item("整理模型", model.title + "。" + model.detail + (accelNote ?: "")) { dialog = "llm" }
-                Item(
-                    if (summaryReady) "这个模型已就绪" else "下载这个模型",
-                    summaryStatus ?: if (summaryReady) {
-                        "总结摘要、润色和建议回复都在这台手机上，不上传。生成时逐字显示，可以点停止。"
-                    } else {
-                        model.downloadHint
-                    },
-                ) {
-                    if (!summaryReady && summaryStatus == null) {
-                        scope.launch {
-                            runCatching { ink.jvm.chatter.media.LocalSummary.ensure(ctx) }
-                                .onSuccess { Toast.makeText(ctx, "纪要模型已就绪", Toast.LENGTH_SHORT).show() }
-                                .onFailure { Toast.makeText(ctx, it.message ?: "下载失败", Toast.LENGTH_LONG).show() }
+                if (model.cloud) {
+                    OutlinedTextField(
+                        value = cloudLlmUrl,
+                        onValueChange = { cloudLlmUrl = it; repo.prefs.cloudLlmUrl = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        singleLine = true,
+                        label = { Text("接口地址") },
+                        placeholder = { Text("https://example.com/v1") },
+                    )
+                    OutlinedTextField(
+                        value = cloudLlmKey,
+                        onValueChange = { cloudLlmKey = it; repo.prefs.cloudLlmKey = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        singleLine = true,
+                        label = { Text("密钥") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        placeholder = { Text("可以留空") },
+                    )
+                    OutlinedTextField(
+                        value = cloudLlmModel,
+                        onValueChange = { cloudLlmModel = it; repo.prefs.cloudLlmModel = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        singleLine = true,
+                        label = { Text("模型名") },
+                        placeholder = { Text("服务商给出的模型名") },
+                    )
+                    Text(
+                        if (summaryReady) {
+                            "总结、润色和建议回复会把文字发到这个地址。通话录音不会发送。生成时逐字显示，可以点停止。"
+                        } else {
+                            "地址须以 http 开头，并填写模型名。密钥可以留空。换回本机模型不会自动下载。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    )
+                } else {
+                    Item(
+                        if (summaryReady) "这个模型已就绪" else "下载这个模型",
+                        summaryStatus ?: if (summaryReady) {
+                            "总结摘要、润色和建议回复都在这台手机上，不上传。生成时逐字显示，可以点停止。"
+                        } else {
+                            model.downloadHint
+                        },
+                    ) {
+                        if (!summaryReady && summaryStatus == null) {
+                            scope.launch {
+                                runCatching { ink.jvm.chatter.media.LocalSummary.ensure(ctx) }
+                                    .onSuccess { Toast.makeText(ctx, "纪要模型已就绪", Toast.LENGTH_SHORT).show() }
+                                    .onFailure { Toast.makeText(ctx, it.message ?: "下载失败", Toast.LENGTH_LONG).show() }
+                            }
                         }
                     }
                 }
@@ -706,7 +747,7 @@ private fun ModelDialog(onClose: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "只在这台手机上运行，不上传。换型号不会自动下载。",
+                    "Qwen3 0.6B、1.7B、4B 在这台手机的 GPU 上运行，不上传。选云端接口时，要整理的文字会发到你填的地址。换型号不会自动下载。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -39,8 +39,8 @@ android {
         applicationId = "ink.jvm.chatter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 53
-        versionName = "2.5.3"
+        versionCode = 54
+        versionName = "2.5.4"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
 
@@ -149,11 +149,8 @@ dependencies {
     implementation(files(patchWebRtc.map { patchedWebrtcAar.get().asFile }))
     // Prebuilt sherpa-onnx Android AAR (Kotlin API + libsherpa-onnx-jni + onnxruntime), v1.13.8.
     implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8")
-    // On-device Qwen. No NDK in this tree; the LiteRT-LM AAR runs the .litertlm file on CPU.
-    // 0.16.1 is the newest LiteRT-LM AAR this Kotlin 2.2.21 toolchain can read. 0.17 needs Kotlin 2.4.
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
-    // Qualcomm GenieX: llama.cpp plus ggml-hexagon. The AAR already contains the Hexagon skels.
-    implementation("com.qualcomm.qti:geniex-android:0.7.0")
+    // On-device Qwen through MNN 3.6.1. arm64 libMNN.so and libmnnllmapp.so live in jniLibs
+    // (official mnn_chat 0.8.3, Apache-2.0). OpenCL is inside libMNN.so. No Maven LLM dependency.
     implementation("org.apache.commons:commons-compress:1.27.1")
     // QR-code key migration between phones (scanner activity + encoder), pure Java, offline.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0") { isTransitive = false }

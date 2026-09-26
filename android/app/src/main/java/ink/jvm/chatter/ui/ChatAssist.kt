@@ -60,8 +60,9 @@ internal fun ChatAssistDialog(
     LaunchedEffect(body) { scroll.scrollTo(scroll.maxValue) }
     LaunchedEffect(request) {
         val req = request ?: return@LaunchedEffect
-        if (!LocalSummary.ready(ctx)) {
-            Toast.makeText(ctx, "先下载纪要模型", Toast.LENGTH_SHORT).show()
+        val missing = LocalSummary.unavailable(ctx)
+        if (missing != null) {
+            Toast.makeText(ctx, missing, Toast.LENGTH_SHORT).show()
             onClose()
             return@LaunchedEffect
         }

@@ -160,8 +160,9 @@ private fun DetailPage(repo: ChatRepository, note: CallNotes.Note, onBack: () ->
                                 work.value?.cancel()
                                 return@TextButton
                             }
-                            if (!LocalSummary.ready(ctx)) {
-                                Toast.makeText(ctx, "先下载纪要模型", Toast.LENGTH_SHORT).show()
+                            val missing = LocalSummary.unavailable(ctx)
+                            if (missing != null) {
+                                Toast.makeText(ctx, missing, Toast.LENGTH_SHORT).show()
                                 return@TextButton
                             }
                             busy = true

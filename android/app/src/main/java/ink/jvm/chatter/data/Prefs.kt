@@ -206,17 +206,34 @@ class Prefs(context: Context) {
         set(v) { sp.edit().putString("cloudSttUrl", v).apply() }
 
     /**
-     * After a human call, summarize this phone's own captions with the on-device model.
-     * Default off. The transcript is never sent to a cloud model.
+     * After a human call, the user may summarize this phone's captions.
+     * Default off. The getter is unused and stays.
+     * Call audio is never uploaded. The transcript text is sent only when the user
+     * has selected the cloud summary endpoint and then taps summarize.
      */
     var callSummary: Boolean
         get() = sp.getBoolean("callSummary", false)
         set(v) { sp.edit().putBoolean("callSummary", v).apply() }
 
-    /** Selected on-device Qwen file. Default is the 4B class, the closest loadable size to 3B. */
+    /** Selected summary engine. Default is Qwen3 1.7B on the GPU. "cloud" uses the fields below. */
     var summaryModel: String
-        get() = sp.getString("summaryModel", "qwen35-4b") ?: "qwen35-4b"
+        get() = sp.getString("summaryModel", "qwen3-1.7b") ?: "qwen3-1.7b"
         set(v) { sp.edit().putString("summaryModel", v).apply() }
+
+    /** OpenAI-compatible chat base URL for the optional cloud summary. Empty until the user fills it in. */
+    var cloudLlmUrl: String
+        get() = sp.getString("cloudLlmUrl", "") ?: ""
+        set(v) { sp.edit().putString("cloudLlmUrl", v).apply() }
+
+    /** Bearer token for [cloudLlmUrl]. May be empty. Never log this value. */
+    var cloudLlmKey: String
+        get() = sp.getString("cloudLlmKey", "") ?: ""
+        set(v) { sp.edit().putString("cloudLlmKey", v).apply() }
+
+    /** Model name sent as the OpenAI `model` field. Required when the cloud option is selected. */
+    var cloudLlmModel: String
+        get() = sp.getString("cloudLlmModel", "") ?: ""
+        set(v) { sp.edit().putString("cloudLlmModel", v).apply() }
 
     /** Fetch OpenGraph cards for links in text messages (the phone contacts the site). */
     var linkPreview: Boolean
