@@ -155,6 +155,9 @@ internal fun InputBar(
     // ---- 1.7 ----
     onLocation: (() -> Unit)? = null,
     onCall: ((video: Boolean) -> Unit)? = null,
+    /** Opens the assistant page. Null hides the tile. Voice and video stay on this panel too. */
+    onAssistant: (() -> Unit)? = null,
+    assistantLabel: String = "助手",
     onFavorites: (() -> Unit)? = null,
     /** Voice clip → text for 「转文字」 while holding; null hides that target. */
     transcribe: (suspend (File) -> String?)? = null,
@@ -436,6 +439,9 @@ internal fun InputBar(
                     onCall?.let { call ->
                         add(PlusItem("语音通话", rememberVectorPainter(Icons.Default.Call)) { plusOpen = false; call(false) })
                         add(PlusItem("视频通话", painterResource(R.drawable.ic_videocam)) { plusOpen = false; call(true) })
+                    }
+                    onAssistant?.let { open ->
+                        add(PlusItem(assistantLabel, painterResource(R.drawable.ic_bot)) { plusOpen = false; open() })
                     }
                     onFavorites?.let { add(PlusItem("收藏", rememberVectorPainter(Icons.Default.Star)) { plusOpen = false; it() }) }
                     onSchedule?.let { add(PlusItem("定时发送", painterResource(R.drawable.ic_schedule)) { if (value.isBlank()) Toast.makeText(ctx, "先在输入框里写好要定时发的内容", Toast.LENGTH_SHORT).show() else { plusOpen = false; it() } }) }

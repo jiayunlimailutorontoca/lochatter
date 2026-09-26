@@ -34,6 +34,8 @@ The normative document is the Chinese README: [README.md](README.md).
 
 2.5.0 does not change the protocol or the server. Android `versionCode` is 50. On-device summarize, polish, and suggest use Qwen through LiteRT-LM. The default file is Qwen3.5 4B. Settings can switch to Qwen3.5 2B or Qwen3 1.7B. Weights download from ModelScope and are not inside the APK. Output streams, and the user can stop it. These files are text only.
 
+2.5.1 does not change the protocol or the server. Android `versionCode` is 51. On the conversation with the other person, the top bar keeps only the menu. Voice call, video call, and the assistant open from the plus panel.
+
 A deployment has at most two human accounts, plus an optional assistant (user id 0). The assistant receives only messages explicitly addressed to it, and only in plaintext. Frames are JSON over a WebSocket. After a disconnect the client resumes by sequence number and retries an unacknowledged send with the original id.
 
 Encryption is ECDH P-256, HKDF, and AES-256-GCM. Ciphertext uses the prefix `e2e:` or, after a key epoch of about seven days, `e2e2:`. Media uses `LCE1` or `LCE2`. SDP and ICE between the two users are encrypted with the same session key. Media is WebRTC DTLS-SRTP and is not stored by the chat server. If either party has not published a public key, that message is sent in plaintext.

@@ -390,12 +390,12 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                 } else {
                     Item(
                         "名字：$botName",
-                        if (botOnline) "在线 · 聊天页右上角的小机器人进它的页面" else "离线 · NAS 上的 Hermes 没有连到服务器",
+                        if (botOnline) "在线 · 从会话列表，或聊天里的加号进入" else "离线 · NAS 上的 Hermes 没有连到服务器",
                         painterResource(R.drawable.ic_bot), tint = if (botOnline) palette.online else MaterialTheme.colorScheme.onSurfaceVariant,
                     ) { dialog = "bot" }
                     Item(
                         "在主聊天里",
-                        if (botMode == "hidden") "不显示助手的任何消息，只靠右上角的小红点提醒" else "每次 @ 它折叠成一行，点一下去它的页面看回复",
+                        if (botMode == "hidden") "不显示助手的任何消息，未读记在会话列表里" else "每次 @ 它折叠成一行，点一下去它的页面看回复",
                     ) { dialog = "botmode" }
                     Item("快捷指令", "助手页输入框上方的一排按钮，两人共用") { dialog = "quick" }
                     SwitchItem("回复通知", "它答完了通知发问的那个人（对方问的不通知你）", botNotify) { botNotify = it; repo.prefs.botNotify = it }
@@ -739,7 +739,7 @@ private fun ModelDialog(onClose: () -> Unit) {
 
 @Composable
 private fun BotModeDialog(current: String, onPick: (String) -> Unit, onClose: () -> Unit) {
-    val options = listOf("collapsed" to ("折叠成一行" to "主聊天里每个 @ 只占一行，显示是否已回复"), "hidden" to ("不显示" to "主聊天里完全没有助手的痕迹，只有右上角的小红点"))
+    val options = listOf("collapsed" to ("折叠成一行" to "主聊天里每个 @ 只占一行，显示是否已回复"), "hidden" to ("不显示" to "主聊天里完全没有助手的痕迹，未读记在会话列表里"))
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("主聊天里的助手消息") },

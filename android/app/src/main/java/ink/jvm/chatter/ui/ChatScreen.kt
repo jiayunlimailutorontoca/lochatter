@@ -38,7 +38,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -174,7 +173,6 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
     val sharedMedia by repo.sharedMedia.collectAsStateWithLifecycle()
     val botNameRaw by repo.botName.collectAsStateWithLifecycle()
     val botName = botNameRaw.ifEmpty { "助手" }
-    val botUnread by repo.botUnread.collectAsStateWithLifecycle()
     val botReplied by repo.botReplied.collectAsStateWithLifecycle()
     // "collapsed": one line per question; "hidden": the main chat shows nothing of the assistant.
     val botMode = repo.prefs.botInMain
@@ -504,19 +502,6 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                             }
                         },
                         actions = {
-                            val callTint = if (connected && !inCall) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
-                            IconButton(onClick = { dial(false) }, enabled = connected && !inCall) {
-                                Icon(Icons.Default.Call, contentDescription = "语音通话", tint = callTint)
-                            }
-                            IconButton(onClick = { dial(true) }, enabled = connected && !inCall) {
-                                Icon(painterResource(R.drawable.ic_videocam), contentDescription = "视频通话", tint = callTint)
-                            }
-                            if (botNameRaw.isNotEmpty()) IconButton(onClick = { nav.onBot(null) }) {
-                                Box {
-                                    Icon(painterResource(R.drawable.ic_bot), contentDescription = botName, tint = MaterialTheme.colorScheme.primary)
-                                    if (botUnread > 0) Box(Modifier.align(Alignment.TopEnd).size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error))
-                                }
-                            }
                             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "菜单") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("搜索消息") }, leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }, onClick = { menu = false; searching = true })
@@ -580,6 +565,8 @@ fun ChatScreen(repo: ChatRepository, calls: CallManager, onLogout: () -> Unit, n
                 onSchedule = { if (input.isNotBlank()) scheduleDialog = true },
                 onLocation = { nav.onPickLocation(askBot) },
                 onCall = { v -> dial(v) },
+                onAssistant = if (botNameRaw.isNotEmpty()) ({ nav.onBot(null) }) else null,
+                assistantLabel = botName,
                 onFavorites = { nav.onFavorites() },
                 onCapture = { capturing = true },
                 onCaptureLong = systemCamera,

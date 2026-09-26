@@ -34,6 +34,8 @@ lochatter 是一套供两名用户使用的即时通讯系统，包含 Android �
 
 2.5.0 不修改协议与服务端。Android `versionCode` 为 50。本机整理改用 Qwen，默认 Qwen3.5 4B，设置中可改选 Qwen3.5 2B 或 Qwen3 1.7B。权重从魔搭下载，不打进安装包。生成时逐字显示，用户可停止。这些文件只处理文字。详见 [protocol-2.5.md](docs/protocol-2.5.md)。
 
+2.5.1 不修改协议与服务端。Android `versionCode` 为 51。与对方的聊天页右上角只留菜单。语音通话、视频通话和助手改从输入栏的加号进入。详见 [protocol-2.5.1.md](docs/protocol-2.5.1.md)。
+
 ## 1. 客户端与账号
 
 客户端要求 Android 8.0（`minSdk` 26）及以上。消息使用 WebSocket 传输，每帧一条 JSON。连接中断后，客户端按序号补齐缺失消息；未收到确认的消息以原 `id` 重发。服务端按 `id` 去重，不产生第二条记录。
