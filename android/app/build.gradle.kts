@@ -39,8 +39,8 @@ android {
         applicationId = "ink.jvm.chatter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 51
-        versionName = "2.5.1"
+        versionCode = 52
+        versionName = "2.5.2"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
 
@@ -152,6 +152,8 @@ dependencies {
     // On-device Qwen. No NDK in this tree; the LiteRT-LM AAR runs the .litertlm file on CPU.
     // 0.16.1 is the newest LiteRT-LM AAR this Kotlin 2.2.21 toolchain can read. 0.17 needs Kotlin 2.4.
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
+    // Qualcomm GenieX: llama.cpp plus ggml-hexagon. The AAR already contains the Hexagon skels.
+    implementation("com.qualcomm.qti:geniex-android:0.7.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
     // QR-code key migration between phones (scanner activity + encoder), pure Java, offline.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0") { isTransitive = false }

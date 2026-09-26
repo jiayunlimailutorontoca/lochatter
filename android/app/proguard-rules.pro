@@ -39,6 +39,9 @@
 -keep class com.google.ai.edge.litertlm.** { *; }
 -keep class com.google.gson.** { *; }
 -dontwarn com.google.ai.edge.litertlm.**
+# Qualcomm GenieX. JNI looks these classes up by name.
+-keep class com.geniex.sdk.** { *; }
+-dontwarn com.geniex.sdk.**
 -dontwarn com.google.gson.**
 # security-crypto pulls Tink, which references annotations that are not on the compile classpath.
 -dontwarn com.google.errorprone.annotations.**

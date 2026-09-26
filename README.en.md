@@ -36,6 +36,8 @@ The normative document is the Chinese README: [README.md](README.md).
 
 2.5.1 does not change the protocol or the server. Android `versionCode` is 51. On the conversation with the other person, the top bar keeps only the menu. Voice call, video call, and the assistant open from the plus panel.
 
+2.5.2 does not change the protocol or the server. Android `versionCode` is 52. The on-device model list adds a Qwen3.5 2B GGUF that uses the Hexagon NPU on Snapdragon 8 Gen 2, 8 Gen 3, and 8 Elite.
+
 A deployment has at most two human accounts, plus an optional assistant (user id 0). The assistant receives only messages explicitly addressed to it, and only in plaintext. Frames are JSON over a WebSocket. After a disconnect the client resumes by sequence number and retries an unacknowledged send with the original id.
 
 Encryption is ECDH P-256, HKDF, and AES-256-GCM. Ciphertext uses the prefix `e2e:` or, after a key epoch of about seven days, `e2e2:`. Media uses `LCE1` or `LCE2`. SDP and ICE between the two users are encrypted with the same session key. Media is WebRTC DTLS-SRTP and is not stored by the chat server. If either party has not published a public key, that message is sent in plaintext.

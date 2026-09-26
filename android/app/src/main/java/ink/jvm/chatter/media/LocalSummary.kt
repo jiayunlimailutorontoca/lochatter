@@ -33,8 +33,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * On-device text help. Qwen weights through LiteRT-LM, CPU only.
- * The weight file is downloaded from ModelScope. Chat text never leaves the phone.
+ * On-device text help. The three LiteRT-LM Qwen files stay on CPU.
+ * The GGUF option goes through HexagonSummary (Qualcomm GenieX).
+ * Weights download from ModelScope. Chat text never leaves the phone.
  */
 object LocalSummary {
     data class Option(
@@ -48,6 +49,7 @@ object LocalSummary {
         val context: Int,
         val needEightGb: Boolean,
         val urls: List<String>,
+        val geniex: Boolean = false,
     )
 
     private const val DEFAULT_ID = "qwen35-4b"
@@ -67,6 +69,22 @@ object LocalSummary {
                 "https://www.modelscope.cn/api/v1/models/litert-community/Qwen3.5-4B/repo?Revision=master&FilePath=Qwen3.5-4B_mixed_int4.litertlm",
                 "https://www.modelscope.cn/models/litert-community/Qwen3.5-4B/resolve/master/Qwen3.5-4B_mixed_int4.litertlm",
             ),
+        ),
+        Option(
+            id = "qwen35-2b-npu",
+            title = "Qwen3.5 2B · 高通 NPU",
+            detail = "GGUF Q4_0，约 1.2 GB。骁龙 8 Gen 2、8 Gen 3、8 Elite 走 Hexagon NPU，打不开就改用这颗的 CPU。华为麒麟和联发科天玑没有能放进安装包的 NPU 库，选这颗也只走 CPU。只处理文字。",
+            downloadHint = "约 1.2 GB。从魔搭下载。没下好之前，这些功能只提示，不会开始下载。",
+            fileName = "Qwen3.5-2B-Q4_0.gguf",
+            minBytes = 1_100_000_000L,
+            minFree = 2_500_000_000L,
+            context = 4096,
+            needEightGb = false,
+            urls = listOf(
+                "https://www.modelscope.cn/api/v1/models/unsloth/Qwen3.5-2B-GGUF/repo?Revision=master&FilePath=Qwen3.5-2B-Q4_0.gguf",
+                "https://www.modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q4_0.gguf",
+            ),
+            geniex = true,
         ),
         Option(
             id = "qwen35-2b",
@@ -119,6 +137,15 @@ object LocalSummary {
     private val _choice = MutableStateFlow(DEFAULT_ID)
     val choice: StateFlow<String> = _choice.asStateFlow()
 
+    private val _accelNote = MutableStateFlow<String?>(null)
+    val accelNote: StateFlow<String?> = _accelNote.asStateFlow()
+
+    internal fun setAccelNote(text: String?) {
+        _accelNote.value = text
+    }
+
+    internal fun stripThink(raw: String): String = visible(raw)
+
     fun options(): List<Option> = options
 
     fun option(id: String): Option = byId[id] ?: options.first()
@@ -135,7 +162,8 @@ object LocalSummary {
         val next = canonical(id)
         Prefs(ctx).summaryModel = next
         _choice.value = next
-        if (engineId != next && gate.tryLock()) {
+        _accelNote.value = null
+        if ((engineId != next || nextOptionIsGeniex(next)) && gate.tryLock()) {
             try {
                 releaseEngine()
             } finally {
@@ -227,6 +255,12 @@ object LocalSummary {
             }
             gate.withLock {
                 ensureActive()
+                if (model.geniex) {
+                    releaseLitert()
+                    return@withLock HexagonSummary.generate(ctx, model, text, onPartial)
+                }
+                _accelNote.value = null
+                HexagonSummary.release()
                 val llm = try {
                     engineFor(ctx, model)
                 } catch (e: OutOfMemoryError) {
@@ -332,11 +366,18 @@ object LocalSummary {
     }
 
     private fun releaseEngine() {
+        releaseLitert()
+        HexagonSummary.release()
+    }
+
+    private fun releaseLitert() {
         val current = engine
         engine = null
         engineId = null
         if (current != null) runCatching { current.close() }
     }
+
+    private fun nextOptionIsGeniex(id: String) = byId[id]?.geniex == true
 
     private fun prompt(transcript: String): String = """
         下面是这台手机麦克风在通话里听到的话，每行开头是时间，只有这一方，没有对方。请用简体中文写一段简短纪要，一百五十字以内。不要编造没有出现的内容，不要写成双方对话。内容很少就概括那一两句。只输出纪要。

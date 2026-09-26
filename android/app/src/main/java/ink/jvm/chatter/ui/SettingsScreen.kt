@@ -361,8 +361,9 @@ fun SettingsScreen(repo: ChatRepository, onBack: () -> Unit, onFontScale: (Float
                 val modelId by ink.jvm.chatter.media.LocalSummary.choice.collectAsStateWithLifecycle()
                 val model = ink.jvm.chatter.media.LocalSummary.option(modelId)
                 val summaryStatus by ink.jvm.chatter.media.LocalSummary.status.collectAsStateWithLifecycle()
+                val accelNote by ink.jvm.chatter.media.LocalSummary.accelNote.collectAsStateWithLifecycle()
                 val summaryReady = ink.jvm.chatter.media.LocalSummary.ready(ctx)
-                Item("整理模型", model.title + "。" + model.detail) { dialog = "llm" }
+                Item("整理模型", model.title + "。" + model.detail + (accelNote ?: "")) { dialog = "llm" }
                 Item(
                     if (summaryReady) "这个模型已就绪" else "下载这个模型",
                     summaryStatus ?: if (summaryReady) {
